@@ -13,19 +13,21 @@
 
 ### Requirement: Markdown SSOT 与 USER / IDENTITY / SOUL
 
-产品必须以 **`.agent/`**（或等价根）下 Markdown 为真相源。
+产品必须以约定根目录（默认 **`.agent/`**）下 Markdown 为真相源。
 
 - **`USER.md`**：人类用户档案；**必须**作为 bootstrap 的一部分；**不得**默认并入 FTS。
-- **`IDENTITY.md` / `SOUL.md`**：Agent 叙事设定与运行原则；实现须支持 **二者均为独立文件**，或 **合并为单一 Markdown 内两大章节**（`design.md`），**不得**重复注入两份等价正文。
+- **`IDENTITY.md`**、**`SOUL.md`**：**必须**各为 **独立文件**；**不得**合并为单一 Markdown、**不得**省略其一；**不得**重复注入两份等价正文。
 - **`AGENTS.md`**：可选；若存在则纳入 bootstrap（倾向先于 USER/人设）。
 - **`MEMORY.md`**：长期记忆事实；**必须**纳入 FTS；是否在 bootstrap 中额外常驻摘要以实现为准，须文档化且与 FTS 白名单一致。
+
+**按日日记**路径（相对 CLI `cwd`）：**`memory/YYYY/MM/YYYY-MM-DD.md`**。该路径 **不得**设计为对用户隐藏；须支持用户直接查看与编辑。日记文件 **必须**纳入 FTS 记忆语料。
 
 **不得**实现酒馆式「设定书」的 **关键词触发按需注入**；此类内容须 **并入初始角色信息**，随 bootstrap 一并提供。
 
 #### Scenario: 会话锚点注入
 
 - **当** 主会话请求模型回复
-- **则** 系统必须按设计文档顺序组装 **完整初始角色信息**（USER + IDENTITY/SOUL + 可选 AGENTS + 可选 MEMORY 摘要），且 **会话级不随每条用户消息倍增**。
+- **则** 系统必须按设计文档顺序组装 **完整初始角色信息**（USER + IDENTITY + SOUL + 可选 AGENTS + 可选 MEMORY 摘要），且 **会话级不随每条用户消息倍增**。
 
 ---
 
@@ -51,7 +53,7 @@
 
 ### Requirement: 记忆检索专用 FTS
 
-系统必须在 **每次用户发送消息、调用模型之前**，对 **记忆语料集合**（至少 `MEMORY.md` 与按日日记路径）执行 **SQLite FTS5**；分词器 **倾向** [wangfenjin/simple](https://github.com/wangfenjin/simple)。查询文本 **倾向** 为当前用户消息。
+系统必须在 **每次用户发送消息、调用模型之前**，对 **记忆语料集合** 执行 **SQLite FTS5**：至少包含 **`MEMORY.md`** 与 **`memory/YYYY/MM/`** 下对应日期的 **`YYYY-MM-DD.md`** 文件；分词器 **倾向** [wangfenjin/simple](https://github.com/wangfenjin/simple)。查询文本 **倾向** 为当前用户消息。
 
 系统 **不得**将 **`USER.md` / `IDENTITY.md` / `SOUL.md` / `AGENTS.md`** 纳入该 FTS 默认索引范围。
 

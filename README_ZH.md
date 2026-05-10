@@ -68,7 +68,7 @@
 
 ## Super-Agent-Lover（`lover` 分支）
 
-本分支演进为独立产品 **super-agent-lover**：单一伴侣型 Agent、`.agent/` Markdown SSOT、记忆仅走 **FTS**（人设文件不进 FTS）。文件职责与 bootstrap 顺序见 **[docs/LOVER_SSOT.md](docs/LOVER_SSOT.md)**；规格与任务见 **openspec/changes/lover-sap-foundation/**。
+本分支演进为独立产品 **super-agent-lover**：单一伴侣型 Agent、`.agent/` Markdown SSOT（**`IDENTITY.md` 与 `SOUL.md` 分文件、不合并**）、记忆仅走 **FTS**（**`MEMORY.md`** + 对用户可见的 **`memory/YYYY/MM/YYYY-MM-DD.md`** 日记；人设文件不进 FTS）。文件职责与 bootstrap 顺序见 **[docs/LOVER_SSOT.md](docs/LOVER_SSOT.md)**；规格与任务见 **openspec/changes/lover-sap-foundation/**。
 
 ## 快速开始
 
