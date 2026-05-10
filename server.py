@@ -13,7 +13,6 @@ from py.cli_tool import read_file_tool_local
 from py.task_tools import query_task_progress
 from py.ws_manager import ws_manager
 import shortuuid
-os.environ["MEM0_TELEMETRY"] = "False"
 parser = argparse.ArgumentParser(description="Run the ASGI application server.")
 parser.add_argument("--host", default="127.0.0.1")
 parser.add_argument("--port", type=int, default=3456)
@@ -712,6 +711,8 @@ async def lifespan(app: FastAPI):
     scheduler = AgentScheduler(settings)
     scheduler_task = asyncio.create_task(scheduler.start_loop())
 
+    memory_index_bg_task = None
+
     # --- [日志系统初始化] ---
     timestamp = time.time()
     log_path = os.path.join(LOG_DIR, f"backend_{timestamp}.log")
@@ -722,6 +723,51 @@ async def lifespan(app: FastAPI):
         handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
         logger.addHandler(handler)
     logger.info("===== 日志系统初始化成功 =====")
+
+    # --- [工作区记忆 FTS：后台首次同步 + 按 loverSettings 间隔 sync（不阻塞 lifespan /health）] ---
+    try:
+        from py.lover_memory_fts import (
+            lover_data_root,
+            lover_memory_options,
+            sync_memory_index,
+        )
+
+        async def _memory_index_lifecycle():
+            global settings
+            try:
+                root = lover_data_root()
+                await asyncio.to_thread(
+                    sync_memory_index,
+                    root,
+                    lover_memory_options(settings or {}),
+                )
+                logger.info("Lover 记忆索引已初始化同步: %s", root)
+            except asyncio.CancelledError:
+                raise
+            except Exception as ex:
+                logger.warning("Lover 记忆索引启动同步跳过: %s", ex)
+            while True:
+                try:
+                    opts = lover_memory_options(settings or {})
+                    interval = int(opts.get("sync_interval_sec", 600))
+                except Exception:
+                    interval = 600
+                await asyncio.sleep(max(60, interval))
+                try:
+                    root = lover_data_root()
+                    await asyncio.to_thread(
+                        sync_memory_index,
+                        root,
+                        lover_memory_options(settings or {}),
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as ex:
+                    logger.debug("memory_index 定时同步: %s", ex)
+
+        memory_index_bg_task = asyncio.create_task(_memory_index_lifecycle())
+    except Exception as e:
+        logger.warning("Lover 记忆索引启动同步跳过: %s", e)
 
     # --- [代理与 HTTP 客户端初始化] ---
     proxy_url = None
@@ -868,6 +914,12 @@ async def lifespan(app: FastAPI):
 
     if scheduler_task:
         scheduler_task.cancel()
+    try:
+        if memory_index_bg_task:
+            memory_index_bg_task.cancel()
+            await memory_index_bg_task
+    except asyncio.CancelledError:
+        pass
     ext_ids = list(node_mgr.exts.keys())
     for ext_id in ext_ids:
         try: await node_mgr.stop(ext_id)
@@ -3126,7 +3178,6 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                                    fastapi_base_url, enable_thinking, enable_deep_research, 
                                    enable_web_search, async_tools_id):
     try:
-        from mem0 import Memory
         global mcp_client_list, HA_client, ChromeMCP_client, sql_client
         
         DRS_STAGE = 1
@@ -3407,47 +3458,19 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
         from py.mode_change import mode_change_tool
         from py.acpx_tools import acp_agent_tool
 
-        m0 = None
         memoryId = None
+        cur_memory = None
+        from py.lover_memory_fts import lover_data_root
+
+        lover_root = lover_data_root()
         if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != ""  and not request.is_sub_agent:
             memoryId = settings["memorySettings"]["selectedMemory"]
-            cur_memory = None
             for memory in settings["memories"]:
                 if memory["id"] == memoryId:
                     cur_memory = memory
                     break
-            if cur_memory and cur_memory["providerId"]:
-                print("长期记忆启用")
-                config={
-                    "embedder": {
-                        "provider": 'openai',
-                        "config": {
-                            "model": cur_memory['model'],
-                            "api_key": cur_memory['api_key'],
-                            "openai_base_url":cur_memory["base_url"],
-                            "embedding_dims":cur_memory.get("embedding_dims", 1024)
-                        },
-                    },
-                    "llm": {
-                        "provider": 'openai',
-                        "config": {
-                            "model": settings['model'],
-                            "api_key": settings['api_key'],
-                            "openai_base_url":settings["base_url"]
-                        }
-                    },
-                    "vector_store": {
-                        "provider": "faiss",
-                        "config": {
-                            "collection_name": "agent-party",
-                            "path": os.path.join(MEMORY_CACHE_DIR,memoryId),
-                            "distance_strategy": "euclidean",
-                            "embedding_model_dims": cur_memory.get("embedding_dims", 1024)
-                        }
-                    }
-                }
-                m0 = Memory.from_config(config)
-                print("长期记忆配置加载完成")
+            if cur_memory:
+                print("Lover FTS 记忆检索启用（USER_DATA_DIR/lover：MEMORY.md + memory/）")
         open_tag = "<think>"
         close_tag = "</think>"
 
@@ -3692,23 +3715,35 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                 # 替换cur_memory["systemPrompt"]中的{{char}}为cur_memory["name"]
                 settings["memorySettings"]["genericSystemPrompt"] = settings["memorySettings"]["genericSystemPrompt"].replace("{{char}}", cur_memory["name"])
                 content_append(request.messages, 'system', "\n\n" + settings["memorySettings"]["genericSystemPrompt"] + "\n\n")
-            if m0 and not request.is_sub_agent:
+            if lover_root and not request.is_sub_agent:
+                from functools import partial
+
+                from py.lover_memory_fts import lover_memory_options, search_memory
+
                 memoryLimit = settings["memorySettings"]["memoryLimit"]
+                query_text = _extract_text_content(user_prompt)
                 try:
-                    # 【核心修改】：使用 asyncio.to_thread 将同步的 search 方法放入线程池运行
-                    # 这样主线程（Event Loop）会被释放，可以去处理 /minilm/embeddings 请求，从而避免死锁
-                    relevant_memories = await asyncio.to_thread(
-                        m0.search, 
-                        query=user_prompt, 
-                        user_id=memoryId, 
-                        limit=memoryLimit
+                    hits = await asyncio.to_thread(
+                        partial(
+                            search_memory,
+                            lover_root,
+                            query_text,
+                            memoryLimit,
+                            lover_memory_options(settings),
+                        )
                     )
-                    relevant_memories = json.dumps(relevant_memories, ensure_ascii=False)
+                    relevant_memories = json.dumps(hits, ensure_ascii=False)
                 except Exception as e:
-                    print("m0.search error:",e)
+                    print("lover_memory_fts search error:", e)
                     relevant_memories = ""
-                print("添加相关记忆：\n\n" + relevant_memories + "\n\n相关结束\n\n")
-                content_append(request.messages, 'system', "之前的相关记忆：\n\n" + relevant_memories + "\n\n相关结束\n\n")                   
+                print("添加相关回忆（FTS）：\n\n" + relevant_memories + "\n\n相关结束\n\n")
+                content_append(
+                    request.messages,
+                    "system",
+                    "【相关回忆】（lover/MEMORY.md 与 lover/memory/，SQLite FTS5）\n\n"
+                    + relevant_memories
+                    + "\n\n【相关回忆结束】\n\n",
+                )
         request = await tools_change_messages(request, settings)
         # 如果系统消息为空字符串或者仅包含空白符，则将系统消息改成"you are a helpful assistant."
         if request.messages[0]['role'] == 'system' and not request.messages[0]['content'].strip():
@@ -5360,43 +5395,6 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                         await extract_and_update_affection(full_content)
                     except Exception as e:
                         print(f"解析好感度标签出错: {e}")
-                if m0 and not request.is_sub_agent:
-                    print("记忆更新任务开始提交")
-                    messages = f"用户说：{user_prompt}\n\n---\n\n你说：{full_content}"
-                    infer = cur_memory.get('infer', False) or False
-                    
-                    def run_task():
-                        import asyncio  # ← 在这里导入！
-                        import traceback
-                        
-                        async def add():
-                            loop = asyncio.get_running_loop()
-                            with ThreadPoolExecutor() as executor:
-                                metadata = {
-                                    "timetamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                }
-                                func = partial(m0.add, user_id=memoryId, metadata=metadata, infer=infer)
-                                await loop.run_in_executor(executor, func, messages)
-                                print("记忆更新完成")
-                        
-                        try:
-                            loop = asyncio.get_running_loop()
-                            task = asyncio.create_task(add())
-                            task.add_done_callback(
-                                lambda t: print(f"任务异常: {t.exception()}") if t.exception() else None
-                            )
-                        except RuntimeError:
-                            # 没有运行的事件循环
-                            asyncio.run(add())
-                        except Exception as e:
-                            print(f"run_task 异常: {e}")
-                            traceback.print_exc()
-                    
-                    import threading
-                    thread = threading.Thread(target=run_task, daemon=True)
-                    thread.start()
-                    print("记忆更新任务已提交到后台线程")
-
                 return
             except Exception as e:
                 logger.error(f"{request.messages}")
@@ -5434,7 +5432,6 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
         )
 
 async def generate_complete_response(client,reasoner_client, request: ChatRequest, settings: dict,fastapi_base_url,enable_thinking,enable_deep_research,enable_web_search):
-    from mem0 import Memory
     global mcp_client_list,HA_client,ChromeMCP_client,sql_client
     DRS_STAGE = 1 # 1: 明确用户需求阶段 2: 工具调用阶段 3: 生成结果阶段
     if len(request.messages) > 2:
@@ -5593,45 +5590,19 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
     
     from py.mode_change import mode_change_tool
     from py.acpx_tools import acp_agent_tool
-    m0 = None
+    memoryId = None
+    cur_memory = None
+    from py.lover_memory_fts import lover_data_root
+
+    lover_root = lover_data_root()
     if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != "":
         memoryId = settings["memorySettings"]["selectedMemory"]
-        cur_memory = None
         for memory in settings["memories"]:
             if memory["id"] == memoryId:
                 cur_memory = memory
                 break
-        if cur_memory and cur_memory["providerId"]:
-            print("长期记忆启用")
-            config={
-                "embedder": {
-                    "provider": 'openai',
-                    "config": {
-                        "model": cur_memory['model'],
-                        "api_key": cur_memory['api_key'],
-                        "openai_base_url":cur_memory["base_url"],
-                        "embedding_dims":cur_memory.get("embedding_dims", 1024)
-                    },
-                },
-                "llm": {
-                    "provider": 'openai',
-                    "config": {
-                        "model": settings['model'],
-                        "api_key": settings['api_key'],
-                        "openai_base_url":settings["base_url"]
-                    }
-                },
-                "vector_store": {
-                    "provider": "faiss",
-                    "config": {
-                        "collection_name": "agent-party",
-                        "path": os.path.join(MEMORY_CACHE_DIR,memoryId),
-                        "distance_strategy": "euclidean",
-                        "embedding_model_dims": cur_memory.get("embedding_dims", 1024)
-                    }
-                }
-            }
-            m0 = Memory.from_config(config)
+        if cur_memory:
+            print("Lover FTS 记忆检索启用（USER_DATA_DIR/lover：MEMORY.md + memory/）")
     images = await images_in_messages(request.messages,fastapi_base_url)
     request.messages = await message_without_images(request.messages)
     open_tag = "<think>"
@@ -5872,23 +5843,35 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                 print("添加系统提示：\n\n" + settings["memorySettings"]["genericSystemPrompt"] + "\n\n系统提示结束\n\n")
                 content_append(request.messages, 'system', "系统提示：\n\n" + settings["memorySettings"]["genericSystemPrompt"] + "\n\n系统提示结束\n\n")
                     
-            if m0:
+            if lover_root:
+                from functools import partial
+
+                from py.lover_memory_fts import lover_memory_options, search_memory
+
                 memoryLimit = settings["memorySettings"]["memoryLimit"]
+                query_text = _extract_text_content(user_prompt)
                 try:
-                    # 【核心修改】：使用 asyncio.to_thread 将同步的 search 方法放入线程池运行
-                    # 这样主线程（Event Loop）会被释放，可以去处理 /minilm/embeddings 请求，从而避免死锁
-                    relevant_memories = await asyncio.to_thread(
-                        m0.search, 
-                        query=user_prompt, 
-                        user_id=memoryId, 
-                        limit=memoryLimit
+                    hits = await asyncio.to_thread(
+                        partial(
+                            search_memory,
+                            lover_root,
+                            query_text,
+                            memoryLimit,
+                            lover_memory_options(settings),
+                        )
                     )
-                    relevant_memories = json.dumps(relevant_memories, ensure_ascii=False)
+                    relevant_memories = json.dumps(hits, ensure_ascii=False)
                 except Exception as e:
-                    print("m0.search error:",e)
+                    print("lover_memory_fts search error:", e)
                     relevant_memories = ""
-                print("添加相关记忆：\n\n" + relevant_memories + "\n\n相关结束\n\n")
-                content_append(request.messages, 'system', "之前的相关记忆：\n\n" + relevant_memories + "\n\n相关结束\n\n") 
+                print("添加相关回忆（FTS）：\n\n" + relevant_memories + "\n\n相关结束\n\n")
+                content_append(
+                    request.messages,
+                    "system",
+                    "【相关回忆】（lover/MEMORY.md 与 lover/memory/，SQLite FTS5）\n\n"
+                    + relevant_memories
+                    + "\n\n【相关回忆结束】\n\n",
+                )
         if settings["knowledgeBases"]:
             for kb in settings["knowledgeBases"]:
                 if kb["enabled"] and kb["processingStatus"] == "completed":
@@ -6446,22 +6429,6 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
                 response_dict["choices"][0]['message']['reasoning_content'] = reasoning_content.group(1).strip()
                 # 移除原内容中的标签部分
                 response_dict["choices"][0]['message']['content'] = re.sub(fr'{open_tag}(.*?)\{close_tag}', '', content, flags=re.DOTALL).strip()
-        if m0:
-            messages=f"用户说：{user_prompt}\n\n---\n\n你说：{response_dict["choices"][0]['message']['content']}"
-            executor = ThreadPoolExecutor()
-            infer = cur_memory.get('infer') or False
-            async def add():
-                loop = asyncio.get_event_loop()
-                # 绑定 user_id 关键字参数
-                metadata = {
-                    "timetamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                }
-                func = partial(m0.add, user_id=memoryId,metadata=metadata,infer=infer)
-                # 传递 messages 作为位置参数
-                await loop.run_in_executor(executor, func, messages)
-                print("知识库更新完成")
-
-            asyncio.create_task(add())
         return JSONResponse(content=response_dict)
     except Exception as e:
         return JSONResponse(

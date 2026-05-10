@@ -19,7 +19,10 @@
         "need_more_search":"需要更多搜索",
         "asyncToolsSetUP" : "异步工具已启动，ID为",
         "sendArg":"发送参数：",
-        "NoModelProvidersConfigured": "没有配置模型服务商"
+        "NoModelProvidersConfigured": "没有配置模型服务商",
+        "loverSettingsMenu": "Lover 工作区",
+        "loverSettingsNotice": "人设与记忆均在用户数据目录下的 lover/（与 cc_path 无关）：MEMORY.md、memory/、memory_index.sqlite。日记推荐 lover/memory/年/月/xxx.md；memory 下任意 .md（递归）均会索引。simple 中文分词扩展自动从 GitHub 下载（缓存 lover/_fts5_simple/）；换分词器请删 memory_index.sqlite 后重启。",
+        "loverMemorySyncInterval": "记忆索引同步间隔（分钟）"
     },
     "en-US":{
         "web_search":"Searching the Internet, please wait...",
@@ -41,6 +44,9 @@
         "need_more_search":"Need more search",
         "asyncToolsSetUP" : "The asynchronous tool has started, with the ID",
         "sendArg":"Send parameters:",
-        "NoModelProvidersConfigured": "No model providers configured"
+        "NoModelProvidersConfigured": "No model providers configured",
+        "loverSettingsMenu": "Lover workspace",
+        "loverSettingsNotice": "Persona + memory live under user data dir lover/ (not cc_path): MEMORY.md, memory/, memory_index.sqlite. Diary: recommend lover/memory/year/month/file.md; any .md under lover/memory/ (recursive) is indexed. Chinese simple tokenizer extension auto-downloads from GitHub (cached under lover/_fts5_simple/). Delete memory_index.sqlite after tokenizer change.",
+        "loverMemorySyncInterval": "Memory index sync interval (minutes)"
     }
 }

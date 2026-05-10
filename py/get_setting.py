@@ -1,3 +1,4 @@
+import copy
 import io
 import json
 import logging
@@ -105,6 +106,8 @@ SKILLS_DIR = get_global_skills_dir()
 
 # --- 配置文件 ---
 SETTINGS_FILE = os.path.join(USER_DATA_DIR, 'settings.json')
+# Lover：人设 / 记忆 Markdown、memory/ 日记树、memory_index.sqlite（与 CLI cc_path 无关）
+LOVER_DATA_DIR = os.path.join(USER_DATA_DIR, 'lover')
 CONFIG_BASE_PATH = os.path.join(base_path, 'config')
 SETTINGS_TEMPLATE_FILE = os.path.join(CONFIG_BASE_PATH, 'settings_template.json')
 BLOCKLIST_FILE = os.path.join(CONFIG_BASE_PATH, 'blocklist.json')
@@ -121,7 +124,8 @@ COVS_PATH = os.path.join(USER_DATA_DIR, "conversations.db")
 dirs_to_create =[
     USER_DATA_DIR, LOG_DIR, MEMORY_CACHE_DIR, UPLOAD_FILES_DIR, 
     TOOL_TEMP_DIR, AGENT_DIR, KB_DIR, EXT_DIR, 
-    DEFAULT_ASR_DIR, DEFAULT_TTS_DIR, DEFAULT_EBD_DIR, CONFIG_BASE_PATH, SKILLS_DIR
+    DEFAULT_ASR_DIR, DEFAULT_TTS_DIR, DEFAULT_EBD_DIR, CONFIG_BASE_PATH, SKILLS_DIR,
+    LOVER_DATA_DIR,
 ]
 for d in set(dirs_to_create):
     try:

@@ -1,7 +1,7 @@
 ## Why
 
-在 **硬分叉** 的 **lover** 产品线上，基于 Super Agent Party 的工程底座，收敛为 **单用户 ↔ 唯一 Agent** 的伴侣型宿主：人设与工作区纪律以 **`.agent/` Markdown SSOT** 为准，**移除酒馆角色卡 / 多卡 / 旧 UI**。  
-人设采用 **OpenClaw 式会话常驻 bootstrap**：**`USER.md`、`IDENTITY.md`、`SOUL.md` 必须为三份独立文件（IDENTITY 与 SOUL 不合并）**，可选 **`AGENTS.md`** 一并注入；原酒馆「设定书」类内容 **并入初始角色信息**，**不设**关键词按需拼装。**每轮 FTS 仅用于记忆语料**：**`MEMORY.md`** 与 **`memory/YYYY/MM/YYYY-MM-DD.md`**（对用户 **可见、可手改**，非隐藏路径）。长期记忆以 **SQLite FTS5 + [wangfenjin/simple](https://github.com/wangfenjin/simple)** 为主；mem0 可选。
+在 **硬分叉** 的 **lover** 产品线上，基于 Super Agent Party 的工程底座，收敛为 **单用户 ↔ 唯一 Agent** 的伴侣型宿主：人设与记忆 Markdown 以 **`USER_DATA_DIR/lover/`** 为 SSOT（**与 `CLISettings.cc_path` 无关**）；工作区 `.agent/` 仍可用于任务、待办、项目 skills 等。**移除酒馆角色卡 / 多卡 / 旧 UI**。  
+人设采用 **OpenClaw 式会话常驻 bootstrap**：**`USER.md`、`IDENTITY.md`、`SOUL.md` 必须为三份独立文件（IDENTITY 与 SOUL 不合并）**，可选 **`AGENTS.md`** 一并注入；原酒馆「设定书」类内容 **并入初始角色信息**，**不设**关键词按需拼装。**每轮 FTS 仅用于记忆语料**：**`lover/MEMORY.md`** 与 **`lover/memory/` 下递归的 `.md`**（推荐 `YYYY/MM` 布局；对用户 **可见、可手改**）。长期记忆 **仅 SQLite FTS5**；**`loverSettings`**（默认同步 **10 分钟**）；**simple** 分词扩展 **自动获取**（见实现）。**已移除 mem0**。
 
 **品牌与仓库命名**：后续对外将由 **super-agent-party** 更名为 **super-agent-lover**。文中「SAP」「上游」仍指原 super-agent-party 主线。
 
@@ -9,12 +9,12 @@
 
 ### 阶段 A — 范围与设计定型
 
-- 固化 **USER / IDENTITY / SOUL 三分文件（不合并）**、**日记路径 `memory/YYYY/MM/YYYY-MM-DD.md`**、bootstrap 顺序、**FTS 仅记忆**、主会话+归档。
+- 固化 **USER / IDENTITY / SOUL 三分文件（不合并）**、**日记树 `lover/memory/**/*.md`（推荐按年月）**、bootstrap 顺序、**FTS 仅记忆**、主会话+归档。
 
 ### 阶段 B — 记忆后端
 
-- FTS 索引 **`MEMORY.md`** + **`memory/`** 下按日文件；每轮用户消息后、模型调用前注入回忆片段。
-- **可选 mem0**：唯一 Agent id。
+- FTS 索引 **`lover/MEMORY.md`** + **`lover/memory/`** 下按日文件；每轮用户消息后、模型调用前注入回忆片段。
+- **无 mem0**：不向向量库自动写入对话摘要。
 
 ### 阶段 C — 前端与会话
 

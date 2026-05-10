@@ -1867,6 +1867,7 @@ let vue_methods = {
           this.acpSettings = data.data.acpSettings || this.acpSettings;
           this.visionControlSettings = data.data.visionControlSettings || this.visionControlSettings;
           this.loveSettings = data.data.loveSettings || this.loveSettings;
+          this.loverSettings = data.data.loverSettings || this.loverSettings;
           this.ccSettings = data.data.ccSettings || this.ccSettings;
           this.qcSettings = data.data.qcSettings || this.qcSettings;
           this.dsSettings = data.data.dsSettings || this.dsSettings;
@@ -1941,6 +1942,7 @@ let vue_methods = {
           this.acpSettings = data.data.acpSettings || this.acpSettings;
           this.visionControlSettings = data.data.visionControlSettings || this.visionControlSettings;
           this.loveSettings = data.data.loveSettings || this.loveSettings;
+          this.loverSettings = data.data.loverSettings || this.loverSettings;
           this.ccSettings = data.data.ccSettings || this.ccSettings;
           this.qcSettings = data.data.qcSettings || this.qcSettings;
           this.dsSettings = data.data.dsSettings || this.dsSettings;
@@ -3770,6 +3772,7 @@ let vue_methods = {
           acpSettings: this.acpSettings,
           visionControlSettings: this.visionControlSettings,
           loveSettings: this.loveSettings,
+          loverSettings: this.loverSettings,
           ccSettings: this.ccSettings,
           qcSettings: this.qcSettings,
           dsSettings: this.dsSettings,

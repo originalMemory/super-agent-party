@@ -51,27 +51,18 @@
 
 ---
 
-### Requirement: 记忆检索专用 FTS
+### Requirement: 记忆检索专用 FTS（无 mem0）
 
-系统必须在 **每次用户发送消息、调用模型之前**，对 **记忆语料集合** 执行 **SQLite FTS5**：至少包含 **`MEMORY.md`** 与 **`memory/YYYY/MM/`** 下对应日期的 **`YYYY-MM-DD.md`** 文件；分词器 **倾向** [wangfenjin/simple](https://github.com/wangfenjin/simple)。查询文本 **倾向** 为当前用户消息。
+系统必须在 **每次用户发送消息、调用模型之前**，对 **记忆语料集合** 执行 **SQLite FTS5**：至少包含 **`USER_DATA_DIR/lover/MEMORY.md`** 与 **`USER_DATA_DIR/lover/memory/`** 下 **递归**的 **`.md`** 文件（推荐 **`lover/memory/YYYY/MM/<日记>.md`**，实现 **不**强制校验日期）。记忆根目录为 **`USER_DATA_DIR/lover`**（**与 `CLISettings.cc_path` 无关**）。查询文本 **倾向** 为当前用户消息（可从多模态消息中提取纯文本）。索引库 **`{USER_DATA_DIR}/lover/memory_index.sqlite`**，**不得**当作唯一 SSOT。索引刷新 **不得**绑定在每次查询路径上；同步间隔 **`loverSettings.memoryIndexSyncIntervalMinutes`**（默认 10 分钟）；**进程启动**与**后台周期**调用 **`sync_memory_index`**（见 `server.py` lifespan）。实现 **应尝试** 自动获取并加载 **wangfenjin/simple**（`tokenize='simple'` / `simple_query()`，缓存路径见实现）；失败则使用内置分词降级；换分词器须重建索引文件。
 
 系统 **不得**将 **`USER.md` / `IDENTITY.md` / `SOUL.md` / `AGENTS.md`** 纳入该 FTS 默认索引范围。
 
-#### Scenario: simple 扩展失败
+系统 **不得**依赖 **mem0** 或同类向量记忆栈完成本轮注入；长期记忆 **读路径** 以 FTS 命中片段为准。
 
-- **当** simple 扩展不可用
-- **则** 必须有降级策略且不得崩溃。
+#### Scenario: FTS 分词降级
 
----
-
-### Requirement: 可选 mem0
-
-若启用 mem0，命名空间绑定 **唯一 Agent id**。若禁用，本要求不适用。
-
-#### Scenario: mem0 一致
-
-- **当** 启用 mem0 且读写
-- **则** 使用同一 Agent 命名空间。
+- **当** 目标 SQLite 不支持首选 FTS5 分词器（如 trigram）
+- **则** 必须降级到其它内置 tokenize 或默认 FTS5，且不得崩溃。
 
 ---
 

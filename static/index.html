@@ -5802,6 +5802,37 @@ function updateElement(el, rawMarkdown, formatFn) {
                   </el-button>
                 </template>
               </el-dialog>
+
+              <!-- Lover：工作区记忆 FTS -->
+              <div v-show="subMenu === 'lover'" class="page">
+                <el-form :model="loverSettings" class="settings-form" label-position="top">
+                  <div class="tool-item">
+                    <div class="tool-header">
+                      <div class="header-left">
+                        <span>
+                          <el-icon><i class="fa-solid fa-book-bookmark"></i></el-icon>
+                          {{ t('loverSettingsMenu') || 'Lover 工作区' }}
+                        </span>
+                      </div>
+                    </div>
+                    <div class="tool-content">
+                      <el-alert type="info" :closable="false" class="mb-4">
+                        <template #default>
+                          <span>{{ t('loverSettingsNotice') || '人设与记忆在用户数据目录 lover/（与 cc_path 无关）；索引 memory_index.sqlite。simple 扩展自动下载（lover/_fts5_simple/）；换分词器请删库重启。' }}</span>
+                        </template>
+                      </el-alert>
+                      <el-form-item :label="t('loverMemorySyncInterval') || '记忆索引同步间隔（分钟）'">
+                        <el-input-number
+                          v-model="loverSettings.memoryIndexSyncIntervalMinutes"
+                          :min="1"
+                          :max="1440"
+                          @change="autoSaveSettings"
+                        />
+                      </el-form-item>
+                    </div>
+                  </div>
+                </el-form>
+              </div>
             </div>
           </div>
         </div>

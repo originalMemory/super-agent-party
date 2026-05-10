@@ -69,7 +69,7 @@
 
 ## Super-Agent-Lover (`lover` branch)
 
-This branch targets **super-agent-lover**: single companion agent, `.agent/` Markdown SSOT (**`IDENTITY.md` and `SOUL.md` stay separate**), **FTS-only memory corpus** (`MEMORY.md` plus visible diary files under `memory/YYYY/MM/YYYY-MM-DD.md`; persona files are not FTS-indexed). See **[docs/LOVER_SSOT.md](docs/LOVER_SSOT.md)** and OpenSpec **openspec/changes/lover-sap-foundation/**.
+This branch targets **super-agent-lover**: single companion agent, Markdown SSOT under **user data `lover/`** (**`IDENTITY.md` and `SOUL.md` stay separate**), **FTS-only memory corpus** under the same **`lover/`** (`MEMORY.md` plus any `.md` under `lover/memory/` recursively; `cc_path`-independent; persona Markdown SSOT files are not FTS-indexed). See **[docs/LOVER_SSOT.md](docs/LOVER_SSOT.md)** and OpenSpec **openspec/changes/lover-sap-foundation/**.
 
 ## Quick Start
 
