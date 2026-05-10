@@ -66,6 +66,10 @@
 #### 开发者友好：开放openai API接口、MCP接口，可以将智能体对外转接
 ![image](doc/image/img-1/api.jpeg)
 
+## Super-Agent-Lover（`lover` 分支）
+
+本分支演进为独立产品 **super-agent-lover**：单一伴侣型 Agent、`.agent/` Markdown SSOT、记忆仅走 **FTS**（人设文件不进 FTS）。文件职责与 bootstrap 顺序见 **[docs/LOVER_SSOT.md](docs/LOVER_SSOT.md)**；规格与任务见 **openspec/changes/lover-sap-foundation/**。
+
 ## 快速开始
 
 ### 中国用户下载请点击 **中国用户点击下载** 的链接！

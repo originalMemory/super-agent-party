@@ -67,6 +67,10 @@
 #### Developer-Friendly: Offers open OpenAI API interfaces and MCP interfaces, allowing agents to be externally connected
 ![image](doc/image/img-2/api.jpeg)
 
+## Super-Agent-Lover (`lover` branch)
+
+This branch targets **super-agent-lover**: single companion agent, `.agent/` Markdown SSOT, **FTS-only memory corpus** (persona files are not FTS-indexed). See **[docs/LOVER_SSOT.md](docs/LOVER_SSOT.md)** and OpenSpec **openspec/changes/lover-sap-foundation/**.
+
 ## Quick Start
 
 ### 中国用户下载请点击 **中国用户点击下载** 的链接！

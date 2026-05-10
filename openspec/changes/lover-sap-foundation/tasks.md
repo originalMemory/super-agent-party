@@ -1,7 +1,7 @@
 ## 1. 范围与 SSOT 清单
 
-- [ ] 1.1 README：固定 **USER 独立**；**IDENTITY + SOUL** 双文件 **或** 单文件两节合并方案；**AGENTS** 可选；**MEMORY + 按日落盘** 仅 FTS；bootstrap **加载顺序**
-- [ ] 1.2 删除仓库内对已移除变更 `workspace-memory-diary` 的残余引用（若有）
+- [x] 1.1 README：固定 **USER 独立**；**IDENTITY + SOUL** 双文件 **或** 单文件两节合并方案；**AGENTS** 可选；**MEMORY + 按日落盘** 仅 FTS；bootstrap **加载顺序**（见根 `README.md` / `README_ZH.md` 入口与 **`docs/LOVER_SSOT.md`**）
+- [x] 1.2 删除仓库内对已移除变更 `workspace-memory-diary` 的残余引用（已检索：无除本任务历史表述外的残留）
 
 ## 2. 记忆 FTS（仅记忆语料）
 
