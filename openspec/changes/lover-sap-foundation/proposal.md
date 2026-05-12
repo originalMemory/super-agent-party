@@ -9,7 +9,7 @@
 
 ### 阶段 A — 范围与设计定型
 
-- 固化 **USER / IDENTITY / SOUL 三分文件（不合并）**、**日记树 `lover/memory/**/*.md`（推荐按年月）**、bootstrap 顺序、**FTS 仅记忆**、主会话+归档。
+- 固化 **USER / IDENTITY / SOUL 三分文件（不合并）**、**日记树 `lover/memory/**/*.md`（推荐按年月）**、bootstrap 顺序、**FTS 仅记忆**、**主分组（main 单例 + 多 dev）+ 归档分组（仅 main 快照）** 的两组固定结构。
 
 ### 阶段 B — 记忆后端
 
@@ -18,12 +18,22 @@
 
 ### 阶段 C — 前端与会话
 
-- 主会话、归档、主动归档、重置；移除酒馆换卡与相关导航。
+#### C1 — 主会话 / 归档 / 重置
+
+- 主会话单例、归档分组只读、主动归档、重置；移除酒馆换卡与相关导航；归档主会话提供「拉回主会话」按钮。
+
+#### C2 — 开发会话与摘要回流
+
+- 主分组内可多开 `dev` 会话，可选绑定一个 `cc_path` 工作区；与主会话**共享人设 bootstrap**，额外强制注入 `AGENTS.md` + 工作区 `.agent/` 概要。
+- 自身对话**不入 FTS**；归档时由 Agent 起草摘要 → 默认弹窗确认 → 落 `lover/memory/YYYY/MM/<日期>-work-<slug>.md` → 删除原对话历史。
+- 提供 `loverSettings.devArchiveQuickSave`（默认关）跳过弹窗的快速保存开关。
+- 摘要起草失败时降级为元信息摘要（任务标题、绑定工作区、起止时间），仍保留 FTS 痕迹。
 
 ### 阶段 D — SSOT bootstrap
 
 - 按文档顺序加载 `AGENTS`（可选）→ `USER` → `IDENTITY` → `SOUL`；**禁止**每轮重复追加酒馆整块人设；**禁止**单独设定书流水线。
 - **`MEMORY.md`**：可作为常驻摘要纳入 bootstrap **或** 仅靠 FTS 片段注入（二选一须文档化并与 FTS 白名单一致）。
+- `dev` 会话装配相同人设三件套 + 强制 `AGENTS`，绑定工作区时追加 `.agent/` 概要 / 项目 skills 索引；**不得**写入 `MEMORY.md` 或人设三件套。
 
 ### 阶段 E — backlog
 
@@ -45,6 +55,8 @@
 
 ## Impact
 
-- **后端**：移除酒馆每轮人设注入；SSOT 拼接；FTS 监视 `memory/`；无设定书关键词分支。
-- **前端**：裁剪酒馆/角色卡界面。
+- **后端**：移除酒馆每轮人设注入；SSOT 拼接；FTS 监视 `memory/`；无设定书关键词分支；新增 `dev` 会话 bootstrap 装配（强制 AGENTS + 可选工作区概要）与摘要回流写入路径。
+- **前端**：裁剪酒馆/角色卡界面；分组栏收敛为固定的「主分组 / 归档分组」；主会话单例 + 多个 `dev` 会话；归档主会话只读 + 「拉回主会话」；`dev` 归档弹窗确认摘要。
+- **数据模型**：会话表新增 `kind` / `workspace_path` / `archived_at` / `summary_path`；分组用户不可增删。
+- **设置**：新增 `loverSettings.devArchiveQuickSave`（默认 `false`）。
 - **分叉**：独立 lover；可合并上游 SAP（见 `design.md`）。

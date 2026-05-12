@@ -31,12 +31,28 @@
 ## 4. 前端与酒馆移除
 
 - [ ] 4.1 移除角色卡、换卡、酒馆主导航及相关设置
-- [ ] 4.2 主会话 / 归档 / 主动归档 / 重置
+- [ ] 4.2 分组栏收敛为固定的「主分组 / 归档分组」；移除用户新建/删除/重命名分组的入口
+- [ ] 4.3 主分组：主会话单例置顶 + 「+ 开发会话」按钮（可选绑定 `cc_path` 工作区）
+- [ ] 4.4 主会话：归档 / 主动归档 / 重置 入口
+- [ ] 4.5 归档分组：会话列表只读浏览；提供「拉回主会话」按钮（将选中段落以引用追加到主会话上下文，不动归档原件）
+- [ ] 4.6 开发会话归档弹窗：展示 Agent 起草摘要 + 目标文件名预填 + 编辑确认；支持 `loverSettings.devArchiveQuickSave` 跳过弹窗
+- [ ] 4.7 设置页 **Lover 工作区**：新增 `devArchiveQuickSave` 开关（默认关）
 
 ## 5. 会话数据模型
 
-- [ ] 5.1 主会话与归档状态
-- [ ] 5.2 API：归档、重置
+- [ ] 5.1 会话表新增字段：`kind: 'main' | 'dev' | 'archive'`、`workspace_path: string | null`、`archived_at: timestamp | null`、`summary_path: string | null`（沿用既有 schema，避免新表）
+- [ ] 5.2 启动时确保两个固定分组存在（主分组 / 归档分组），`kind=main` 在主分组内单例
+- [ ] 5.3 后端约束：拒绝在主分组创建第二条 `main`；拒绝将 `dev` 移入归档分组；拒绝在归档会话内续聊
+- [ ] 5.4 API：
+  - [ ] 5.4.1 `POST /api/lover/session/main/reset`、`POST /api/lover/session/main/archive`
+  - [ ] 5.4.2 `POST /api/lover/session/dev`（创建，body 可选 `workspace_path`）、`POST /api/lover/session/dev/{id}/reset`
+  - [ ] 5.4.3 `POST /api/lover/session/dev/{id}/archive`：触发摘要回流（参数：`quickSave?: boolean`、`summary?: string`、`slug?: string`）
+  - [ ] 5.4.4 `POST /api/lover/session/archive/{id}/pull`：拉回主会话，body 指定要复制的消息范围
+- [ ] 5.5 `dev` 会话 bootstrap 装配：强制 `AGENTS.md` + 共享人设三件套 + 可选工作区 `.agent/` 概要 / 项目 skills 索引；`workspace_path` 失效时优雅降级
+- [ ] 5.6 写入隔离：`dev` 会话工具调用拒绝写 `USER.md` / `IDENTITY.md` / `SOUL.md` / `AGENTS.md` / `lover/MEMORY.md` / `lover/memory/**/*.md`
+- [ ] 5.7 摘要回流落盘：`lover/memory/YYYY/MM/<YYYY-MM-DD>-work-<slug>.md`；落盘后删除 `dev` 对话历史并写回 `summary_path`
+- [ ] 5.8 起草失败降级：写入仅含元信息（任务标题、`workspace_path`、起止时间）的摘要文件
+- [ ] 5.9 FTS 边界守护：`dev` 自身对话历史**不**进 FTS；摘要日记走既有 `lover/memory/` 递归白名单
 
 ## 6. 分叉与文档
 
@@ -47,4 +63,8 @@
 
 - [ ] 7.1 连续两轮：bootstrap **无重复膨胀**；FTS 仅记忆命中
 - [ ] 7.2 专有名词进 MEMORY 或 **当日日记文件** → FTS 命中；simple / 内置 tokenizer 降级可接受
-- [ ] 7.3 归档与重置
+- [ ] 7.3 主会话归档与重置；归档会话只读 + 「拉回主会话」可用
+- [ ] 7.4 开发会话：创建（带 / 不带 `workspace_path`）→ 归档弹窗 → 落 `lover/memory/YYYY/MM/...-work-<slug>.md` → 对话历史被删除 → 下一轮 sync 后主会话能 FTS 召回该摘要
+- [ ] 7.5 开发会话写入隔离：尝试写人设 / `MEMORY.md` / `lover/memory/` 直接被拒
+- [ ] 7.6 工作区降级：绑定的 `cc_path` 被改名/删除时，开发会话仍可正常对话（仅给出可见提示）
+- [ ] 7.7 摘要起草失败降级：摘要文件仅含元信息也能落盘并被 FTS 收录
