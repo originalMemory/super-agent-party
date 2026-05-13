@@ -14,12 +14,12 @@
 
 ## 3. System Prompt 拼装
 
-- [ ] 3.1 新建 `py/lover_bootstrap.py`，实现 `build_lover_system_prompt()`：
+- [x] 3.1 新建 `py/lover_bootstrap.py`，实现 `build_lover_system_prompt()`：
   - Stable 块：`# Project Context` → AGENTS（可选）→ USER → IDENTITY → SOUL → MEMORY 摘要（可选）→ `<!-- LOVER_PROMPT_CACHE_BOUNDARY -->`
   - Dynamic 块：`## Memory Recall` → `## Workspace`（cc_path 有效时，含 .agent/AGENTS.md / todos / skills）→ `## Runtime`（时间 / kind / workspace_path）→ TTS / VRM 等通用工具提示
-- [ ] 3.2 替换 `tools_change_messages` 中 `cur_memory` 整块注入及现有 MEMORY.md / AGENTS.md / skills 零散 `content_append`，统一走 `build_lover_system_prompt()`
-- [ ] 3.3 **删除**酒馆 `cur_memory` 大块注入（description / personality / mesExample / systemPrompt / characterBook）
-- [ ] 3.4 上下文压缩保护 stable 块（不截断人设文件）
+- [x] 3.2 替换 `tools_change_messages` 中 `cur_memory` 整块注入及现有 MEMORY.md / AGENTS.md / skills 零散 `content_append`，统一走 `build_lover_system_prompt()`
+- [x] 3.3 **删除**酒馆 `cur_memory` 大块注入（description / personality / mesExample / systemPrompt / characterBook）
+- [x] 3.4 上下文压缩保护 stable 块（不截断人设文件）
 
 ## 4. 会话启动序列（Session Startup）
 

@@ -2225,10 +2225,18 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
     permissionMode = env_settings.get("permissionMode", "default")
     
     if cwd and Path(cwd).exists() and cli_settings.get("enabled", False):
-        
+        # Lover bootstrap 已接管 workspace AGENTS.md / MEMORY.md / skills 的注入，
+        # 避免在 tools_change_messages 里重复注入。
+        from py.lover_memory_fts import lover_data_root as _lover_data_root
+        _lover_root_path = _lover_data_root()
+        _lover_active = any(
+            (_lover_root_path / f).is_file()
+            for f in ("SOUL.md", "IDENTITY.md", "USER.md", "AGENTS.md")
+        )
+
         # ==================== [新增] 1. 总是注入 MEMORY.md ====================
         memory_file = Path(cwd) / ".agent" / "MEMORY.md"
-        if memory_file.exists() and memory_file.is_file():
+        if not _lover_active and memory_file.exists() and memory_file.is_file():
             try:
                 import aiofiles
                 async with aiofiles.open(memory_file, 'r', encoding='utf-8') as mf:
@@ -2460,19 +2468,21 @@ async def tools_change_messages(request: ChatRequest, settings: dict):
             print(f"[Todo Loader] 跳过待办事项加载: {e}")
             pass
 
-        try:
-            agents_md = await read_agents_md(cwd)
-            if agents_md:
-                content_append(request.messages, 'system', " **重要事项**（.agent/AGENTS.md）：\n\n"+agents_md+"\n\n")
-        except Exception as e:
-            print(f"[Agent Loader] 跳过AGENTS.md加载: {e}")
-            pass
+        if not _lover_active:
+            try:
+                agents_md = await read_agents_md(cwd)
+                if agents_md:
+                    content_append(request.messages, 'system', " **重要事项**（.agent/AGENTS.md）：\n\n"+agents_md+"\n\n")
+            except Exception as e:
+                print(f"[Agent Loader] 跳过AGENTS.md加载: {e}")
+                pass
 
         try:
-            # 无论是在 docker 还是 local，逻辑路径通常是一致的（通过挂载）
-            # 如果是 Docker 环境且 backend 无法直接访问 cwd，则需通过 docker exec ls 扫描，
-            # 但通常项目路径是共享的。
-            skills_message = await get_project_skills_summary(cwd, visibilityScope)
+            # Lover bootstrap 已接管 workspace skills 注入；global skills 始终保留
+            effective_scope = visibilityScope if not _lover_active else (
+                "global" if visibilityScope == "global" else "none"
+            )
+            skills_message = await get_project_skills_summary(cwd, effective_scope)
             if skills_message:
                 content_append(request.messages, 'system', skills_message)
         except Exception as e:
@@ -3649,101 +3659,27 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
             content_append(request.messages, 'system', fileLinks_message)
             source_prompt += fileLinks_message
         user_prompt = request.messages[-1].get('content') or ""
-        if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != ""  and not request.is_sub_agent:
-            if settings["memorySettings"]["userName"]:
-                print("添加用户名：\n\n" + settings["memorySettings"]["userName"] + "\n\n用户名结束\n\n")
-                content_append(request.messages, 'system', "与你交流的默认用户名为：\n\n" + settings["memorySettings"]["userName"] + "\n\n注意！除非用户消息中提到了是其他用户发送，否则视为默认用户发送的消息\n\n")
-            lore_content = ""
-            assistant_reply = ""
-            # 找出request.messages中上次的assistant回复
-            for i in range(len(request.messages)-1, -1, -1):
-                if request.messages[i]['role'] == 'assistant':
-                    assistant_reply = request.messages[i]['content']
-                    break
-            if cur_memory["characterBook"]:
-                for lore in cur_memory["characterBook"]:
-                    # lore['keysRaw'] 按照换行符分割，并去除空字符串
-                    lore_keys = lore["keysRaw"].split("\n")
-                    lore_keys = [key for key in lore_keys if key != ""]
-                    print(lore_keys)
-                    # 如果lore_keys不为空，并且lore_keys的任意一个元素在user_prompt或者assistant_reply中，则添加lore['content']到lore_content中
-                    if lore_keys != [] and any(key in user_prompt or key in assistant_reply for key in lore_keys):
-                        lore_content += lore['content'] + "\n\n"
-            if lore_content:
-                if settings["memorySettings"]["userName"]:
-                    # 替换lore_content中的{{user}}为settings["memorySettings"]["userName"]
-                    lore_content = lore_content.replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换lore_content中的{{char}}为cur_memory["name"]
-                lore_content = lore_content.replace("{{char}}", cur_memory["name"])
-                print("添加世界观设定：\n\n" + lore_content + "\n\n世界观设定结束\n\n")
-                content_append(request.messages, 'system', "世界观设定：\n\n" + lore_content + "\n\n世界观设定结束\n\n")
-            if cur_memory["description"]:
-                if settings["memorySettings"]["userName"]:
-                    # 替换cur_memory["description"]中的{{user}}为settings["memorySettings"]["userName"]
-                    cur_memory["description"] = cur_memory["description"].replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换cur_memory["description"]中的{{char}}为cur_memory["name"]
-                cur_memory["description"] = cur_memory["description"].replace("{{char}}", cur_memory["name"])
-                print("添加角色设定：\n\n" + cur_memory["description"] + "\n\n角色设定结束\n\n")
-                content_append(request.messages, 'system', "角色设定：\n\n" + cur_memory["description"] + "\n\n角色设定结束\n\n")
-            if cur_memory["personality"]:
-                if settings["memorySettings"]["userName"]:
-                    # 替换cur_memory["personality"]中的{{user}}为settings["memorySettings"]["userName"]
-                    cur_memory["personality"] = cur_memory["personality"].replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换cur_memory["personality"]中的{{char}}为cur_memory["name"]
-                cur_memory["personality"] = cur_memory["personality"].replace("{{char}}", cur_memory["name"])
-                print("添加性格设定：\n\n" + cur_memory["personality"] + "\n\n性格设定结束\n\n")
-                content_append(request.messages, 'system', "性格设定：\n\n" + cur_memory["personality"] + "\n\n性格设定结束\n\n") 
-            if cur_memory['mesExample']:
-                if settings["memorySettings"]["userName"]:
-                    # 替换cur_memory["mesExample"]中的{{user}}为settings["memorySettings"]["userName"]
-                    cur_memory["mesExample"] = cur_memory["mesExample"].replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换cur_memory["mesExample"]中的{{char}}为cur_memory["name"]
-                cur_memory["mesExample"] = cur_memory["mesExample"].replace("{{char}}", cur_memory["name"])
-                print("添加对话示例：\n\n" + cur_memory['mesExample'] + "\n\n对话示例结束\n\n")
-                content_append(request.messages, 'system', "对话示例：\n\n" + cur_memory['mesExample'] + "\n\n对话示例结束\n\n")
-            if cur_memory["systemPrompt"]:
-                if settings["memorySettings"]["userName"]:
-                    # 替换cur_memory["systemPrompt"]中的{{user}}为settings["memorySettings"]["userName"]
-                    cur_memory["systemPrompt"] = cur_memory["systemPrompt"].replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换cur_memory["systemPrompt"]中的{{char}}为cur_memory["name"]
-                cur_memory["systemPrompt"] = cur_memory["systemPrompt"].replace("{{char}}", cur_memory["name"])
-                content_append(request.messages, 'system', "\n\n" + cur_memory["systemPrompt"] + "\n\n")
-            if settings["memorySettings"]["genericSystemPrompt"]:
-                if settings["memorySettings"]["userName"]:
-                    # 替换settings["memorySettings"]["genericSystemPrompt"]中的{{user}}为settings["memorySettings"]["userName"]
-                    settings["memorySettings"]["genericSystemPrompt"] = settings["memorySettings"]["genericSystemPrompt"].replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换cur_memory["systemPrompt"]中的{{char}}为cur_memory["name"]
-                settings["memorySettings"]["genericSystemPrompt"] = settings["memorySettings"]["genericSystemPrompt"].replace("{{char}}", cur_memory["name"])
-                content_append(request.messages, 'system', "\n\n" + settings["memorySettings"]["genericSystemPrompt"] + "\n\n")
-            if lover_root and not request.is_sub_agent:
-                from functools import partial
+        # Lover bootstrap：人设文件存在时接管 system prompt（不依赖酒馆 selectedMemory）
+        from py.lover_memory_fts import lover_data_root as _get_lover_root
+        _lover_data_root_path = _get_lover_root()
+        _lover_files_present = any(
+            (_lover_data_root_path / f).is_file()
+            for f in ("SOUL.md", "IDENTITY.md", "USER.md", "AGENTS.md")
+        )
+        if _lover_files_present and not request.is_sub_agent:
+            from py.lover_bootstrap import build_lover_system_prompt as _build_lover_system_prompt
 
-                from py.lover_memory_fts import lover_memory_options, search_memory
-
-                memoryLimit = settings["memorySettings"]["memoryLimit"]
-                query_text = _extract_text_content(user_prompt)
-                try:
-                    hits = await asyncio.to_thread(
-                        partial(
-                            search_memory,
-                            lover_root,
-                            query_text,
-                            memoryLimit,
-                            lover_memory_options(settings),
-                        )
-                    )
-                    relevant_memories = json.dumps(hits, ensure_ascii=False)
-                except Exception as e:
-                    print("lover_memory_fts search error:", e)
-                    relevant_memories = ""
-                print("添加相关回忆（FTS）：\n\n" + relevant_memories + "\n\n相关结束\n\n")
-                content_append(
-                    request.messages,
-                    "system",
-                    "【相关回忆】（lover/MEMORY.md 与 lover/memory/，SQLite FTS5）\n\n"
-                    + relevant_memories
-                    + "\n\n【相关回忆结束】\n\n",
-                )
+            query_text = _extract_text_content(user_prompt)
+            _ws_path = cli_settings.get("cc_path") if cli_settings.get("enabled") else None
+            if _ws_path and not Path(_ws_path).is_dir():
+                _ws_path = None
+            lover_prompt = await _build_lover_system_prompt(
+                user_query=query_text,
+                settings=settings,
+                workspace_path=_ws_path,
+            )
+            content_replace(request.messages, 'system', lover_prompt)
+            print("[lover/bootstrap] system prompt rebuilt")
         request = await tools_change_messages(request, settings)
         # 如果系统消息为空字符串或者仅包含空白符，则将系统消息改成"you are a helpful assistant."
         if request.messages[0]['role'] == 'system' and not request.messages[0]['content'].strip():

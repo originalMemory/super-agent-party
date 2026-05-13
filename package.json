@@ -2,6 +2,10 @@
   "name": "super-agent-party",
   "version": "v0.4.1",
   "description": "超级智能体派对v0.4.1 | 轻松链接一切!",
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  },
   "main": "main.js",
   "asar": true,
   "scripts": {
