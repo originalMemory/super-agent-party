@@ -1051,9 +1051,7 @@ let vue_methods = {
     },
     switchToSystemPrompts() {
       this.showEditDialog = false;
-      this.activeMenu = 'role';
-      this.subMenu = 'memory';
-      this.activeMemoryTab = 'prompts';
+      this.activeMenu = 'system';
     },
     async syncProviderConfig(targetConfig) {
       if (targetConfig.selectedProvider) {
@@ -1134,9 +1132,9 @@ let vue_methods = {
         this.activeMenu = 'model-config';
         this.subMenu = 'service'; // 默认显示第一个子菜单
       }
-      else if (key === 'role') {
-        this.activeMenu = 'role';
-        this.subMenu = 'memory'; // 默认显示第一个子菜单
+      else if (key === 'persona') {
+        this.activeMenu = 'persona';
+        this.subMenu = 'voice';
       }
       else if (key === 'toolkit') {
         this.activeMenu = 'toolkit';
@@ -5101,14 +5099,13 @@ let vue_methods = {
       this.showAddKbDialog=false;
     },
     switchToMemoryConfig(){
-      this.activeMenu = 'role';  // 根据你的菜单项配置的实际值设置
-      this.subMenu = 'memory';   // 根据你的子菜单项配置的实际值设置
-      this.activeMemoryTab='config';
+      this.activeMenu = 'persona';
+      this.subMenu = 'lover';
       this.showAddMemoryDialog=false;
     },
     switchToMemory(){
-      this.activeMenu = 'role';
-      this.subMenu = 'memory'; 
+      this.activeMenu = 'persona';
+      this.subMenu = 'lover';
     },
     // 在 methods 中添加
     t(key) {
@@ -13012,9 +13009,7 @@ isTargetPlatform(behavior, platformKey) {
   },
   saveSystemPrompt(index) {
     let systemPrompt = this.messages[index].content;
-    this.activeMenu = 'role';
-    this.subMenu = 'memory';
-    this.activeMemoryTab = 'prompts';
+    this.activeMenu = 'system';
     this.promptForm = { id: null, name: '', content: systemPrompt };
     this.showPromptDialog = true;
   },
