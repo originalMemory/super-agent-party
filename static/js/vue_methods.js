@@ -576,6 +576,8 @@ let vue_methods = {
       this.openDeleteConversationDialog(conversation);
     },
     ensureConversationGroups() {
+      const rawGroups = Array.isArray(this.conversationGroups) ? this.conversationGroups : [];
+
       const defaultGroup = {
         id: 'default',
         name: this.t('defaultConversationGroup'),
@@ -583,15 +585,24 @@ let vue_methods = {
         memoryConfig: {}
       };
 
-      const rawGroups = Array.isArray(this.conversationGroups) ? this.conversationGroups : [];
+      // 归档分组：固定系统分组，始终存在
+      const rawArchive = rawGroups.find(g => g.id === 'archive');
+      const archiveGroup = {
+        id: 'archive',
+        name: rawArchive?.name || this.t('archiveConversationGroup'),
+        createdAt: 0,
+        memoryConfig: {}
+      };
+
+      // 自定义分组（lover 下理论上为空）
       const groups = rawGroups
-        .filter(group => group && group.id && group.id !== 'default')
+        .filter(group => group && group.id && group.id !== 'default' && group.id !== 'archive')
         .map(group => ({
           ...group,
           memoryConfig: group.memoryConfig || {}
         }));
 
-      this.conversationGroups = [defaultGroup, ...groups];
+      this.conversationGroups = [defaultGroup, archiveGroup, ...groups];
       if (Array.isArray(this.conversations)) {
         this.conversations.forEach(conv => {
           if (!conv.groupId) {
@@ -648,6 +659,52 @@ let vue_methods = {
       this.setActiveConversationGroup(targetGroupId);
       await this.clearMessages(targetGroupId);
     },
+
+    // ── Lover 会话管理 ──────────────────────────────────────────────
+    openCreateDevSessionDialog() {
+      this.newDevSessionForm = { title: '', ccPath: '' };
+      this.showCreateDevSessionDialog = true;
+    },
+    async createDevConversation() {
+      this.showCreateDevSessionDialog = false;
+      // 在主分组开启新对话，并标记为 dev kind
+      await this.startConversationInGroup('default');
+      // 找到当前刚创建（conversationId 为 null，或刚写入的）会话并打标
+      // kind 在首次保存消息时由 sendMessage 写入
+      this._pendingNewConvKind = 'dev';
+      this._pendingNewConvCcPath = this.newDevSessionForm.ccPath?.trim() || null;
+      this._pendingNewConvTitle = this.newDevSessionForm.title?.trim() || '';
+    },
+    openResetMainSessionDialog(convId) {
+      this.pendingResetConvId = convId;
+      this.showResetMainSessionDialog = true;
+    },
+    async confirmResetMainSession() {
+      const convId = this.pendingResetConvId;
+      if (!convId) return;
+
+      const conv = this.conversations.find(c => c.id === convId);
+      if (conv) {
+        conv.messages = [];
+        conv.timestamp = Date.now();
+      }
+
+      // 若当前正在显示该对话，重置界面
+      if (this.conversationId === convId) {
+        this.messages = [{ id: Date.now() + Math.random(), role: 'system', content: this.system_prompt }];
+        this.conversationId = null;
+        this.fileLinks = [];
+        this.randomGreetings();
+        this.requestScrollToBottom();
+      }
+
+      try { await this.saveConversations(); } catch (_) {}
+      this.showResetMainSessionDialog = false;
+      this.pendingResetConvId = null;
+      showNotification(this.t('mainSessionReset'), 'success');
+    },
+    // ────────────────────────────────────────────────────────────────
+
     async deleteConversationById(conversationId, options = {}) {
       const response = await fetch('/api/conversations/delete', {
         method: 'POST',
@@ -698,13 +755,11 @@ let vue_methods = {
         this.conversationId = null;
         this.messages = [{ id: Date.now() + Math.random(), role: 'system', content: this.system_prompt }];
         this.fileLinks = [];
-        this.conversationGroups = [{
-          id: 'default',
-          name: this.t('defaultConversationGroup'),
-          createdAt: 0,
-          memoryConfig: {}
-        }];
-        this.collapsedConversationGroups = { default: false };
+        this.conversationGroups = [
+          { id: 'default', name: this.t('defaultConversationGroup'), createdAt: 0, memoryConfig: {} },
+          { id: 'archive', name: this.t('archiveConversationGroup'), createdAt: 0, memoryConfig: {} },
+        ];
+        this.collapsedConversationGroups = { default: false, archive: false };
         this.activeConversationGroupId = 'default';
         this.draftConversationGroupId = 'default';
         await this.saveConversations();
@@ -2832,15 +2887,23 @@ let vue_methods = {
             // 消息去重和保存
             if (this.conversationId === null) {
                 this.conversationId = uuid.v4();
+                const pendingKind = this._pendingNewConvKind || null;
+                const pendingCcPath = this._pendingNewConvCcPath || null;
+                const pendingTitle = this._pendingNewConvTitle || '';
+                this._pendingNewConvKind = null;
+                this._pendingNewConvCcPath = null;
+                this._pendingNewConvTitle = '';
                 const newConv = {
                     id: this.conversationId,
-                    title: this.generateConversationTitle(messagesPayload),
+                    title: pendingTitle || this.generateConversationTitle(messagesPayload),
                     mainAgent: this.mainAgent,
                     groupId: this.activeConversationGroupId || this.draftConversationGroupId || 'default',
                     timestamp: Date.now(),
                     messages: this.messages,
                     fileLinks: this.fileLinks,
                     system_prompt: this.system_prompt,
+                    ...(pendingKind ? { kind: pendingKind } : {}),
+                    ...(pendingCcPath ? { cc_path: pendingCcPath } : {}),
                 };
                 this.conversations.unshift(newConv);
             } else {

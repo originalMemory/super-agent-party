@@ -205,6 +205,11 @@ let vue_data = {
     showModelDialog: false,
     showLogoDialog: false,
     deletingConversationId: null, // 正在被删除的对话ID
+    // Lover 会话管理
+    showCreateDevSessionDialog: false,
+    newDevSessionForm: { title: '', ccPath: '' },
+    showResetMainSessionDialog: false,
+    pendingResetConvId: null,
     jsonFile: null,
     models: [],
     modelsLoading: false,

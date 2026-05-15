@@ -1013,8 +1013,13 @@ function updateElement(el, rawMarkdown, formatFn) {
                     <span class="item-title" style="font-weight: bold; font-size: 13px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 15px;">
                       {{ group.name }} ({{ group.conversations.length }})
                     </span>
-                    <!-- 操作区：仅保留折叠/展开 -->
+                    <!-- 操作区：主分组显示「+ 开发会话」，所有分组显示折叠/展开 -->
                     <div class="group-actions" style="display: flex; align-items: center; flex-shrink: 0;" @click.stop>
+                      <el-tooltip v-if="group.id === 'default'" :content="t('newDevSession')" placement="top">
+                        <el-button class="item-delete-btn" circle style="position: relative; right: auto; top: auto; transform: none; display: flex; align-items: center; justify-content: center; margin-right: 2px;" @click.stop="openCreateDevSessionDialog()">
+                          <i class="fa-solid fa-code-branch" style="font-size: 11px;"></i>
+                        </el-button>
+                      </el-tooltip>
                       <el-button class="item-delete-btn" circle style="position: relative; right: auto; top: auto; transform: none; display: flex; align-items: center; justify-content: center;" @click.stop="toggleConversationGroupCollapsed(group.id)">
                         <i :class="isConversationGroupCollapsed(group.id) ? 'fa-solid fa-chevron-right' : 'fa-solid fa-chevron-down'"></i>
                       </el-button>
@@ -1028,31 +1033,50 @@ function updateElement(el, rawMarkdown, formatFn) {
                           class="history-item-row" 
                           :class="{ active: currentConversationId === conv.id || conversationId === conv.id }" 
                           @click="loadConversation(conv.id)"
-                          style="padding-left: 24px;"> <!-- 缩进体现层级 -->
+                          style="padding-left: 24px;">
                         
-                        <i class="fa-regular fa-comment item-icon"></i>
+                        <!-- 图标：主会话用房子，开发会话用分支，归档用归档图标，普通用气泡 -->
+                        <i v-if="conv.kind === 'main'" class="fa-solid fa-house item-icon" style="color: var(--el-color-primary);"></i>
+                        <i v-else-if="conv.kind === 'dev'" class="fa-solid fa-code-branch item-icon" style="color: var(--el-color-success);"></i>
+                        <i v-else-if="group.id === 'archive'" class="fa-solid fa-box-archive item-icon" style="opacity: 0.6;"></i>
+                        <i v-else class="fa-regular fa-comment item-icon"></i>
                         
-                        <!-- 【修改点3】：右侧增加 padding-right: 35px 留出操作按钮的空间 -->
                         <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; justify-content: center; padding-right: 35px;">
-                          <span class="item-title" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ conv.title || t('untitled') }}</span>
+                          <span class="item-title" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            {{ conv.title || t('untitled') }}
+                            <span v-if="conv.kind === 'main'" style="font-size: 10px; color: var(--el-color-primary); margin-left: 4px;">{{ t('mainSession') }}</span>
+                          </span>
                           <span style="font-size: 10px; opacity: 0.6; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                             {{ formatConversationTime ? formatConversationTime(conv.timestamp) : '' }} 
                             <span v-if="getConversationPreview"> - {{ getConversationPreview(conv) }}</span>
                           </span>
                         </div>
                         
-                        <!-- 【修改点4】：外层用绝对定位居中，内部取消按钮自带的绝对定位以修复高度塌陷 -->
                         <div class="item-actions" @click.stop style="position: absolute; right: 8px; top: 0; bottom: 0; display: flex; align-items: center;">
-                          <el-dropdown trigger="click" placement="bottom-end" @click.stop>
+                          <!-- 归档分组：只读，无操作菜单 -->
+                          <span v-if="group.id === 'archive'" style="font-size: 10px; opacity: 0.4; padding-right: 4px;">{{ t('readOnly') }}</span>
+
+                          <!-- 主分组会话：有操作菜单 -->
+                          <el-dropdown v-else trigger="click" placement="bottom-end" @click.stop>
                             <el-button class="item-delete-btn" circle style="position: static; transform: none; display: flex; align-items: center; justify-content: center; margin: 0;">
                               <i class="fa-solid fa-ellipsis"></i>
                             </el-button>
                             <template #dropdown>
                               <el-dropdown-menu>
-                                <el-dropdown-item @click="openRenameConversationDialog(conv)">{{ t('rename') }}</el-dropdown-item>
-                                <el-dropdown-item divided @click="confirmDeleteConversation(conv.id)">
-                                  <span style="color: var(--el-color-danger);">{{ t('delete') }}</span>
-                                </el-dropdown-item>
+                                <!-- 主会话：重命名 + 重置 + 归档（不可删） -->
+                                <template v-if="conv.kind === 'main'">
+                                  <el-dropdown-item @click="openRenameConversationDialog(conv)">{{ t('rename') }}</el-dropdown-item>
+                                  <el-dropdown-item divided @click="openResetMainSessionDialog(conv.id)">
+                                    <i class="fa-solid fa-rotate-left" style="margin-right: 6px;"></i>{{ t('resetMainSession') }}
+                                  </el-dropdown-item>
+                                </template>
+                                <!-- 开发会话 / 普通会话：重命名 + 删除 -->
+                                <template v-else>
+                                  <el-dropdown-item @click="openRenameConversationDialog(conv)">{{ t('rename') }}</el-dropdown-item>
+                                  <el-dropdown-item divided @click="confirmDeleteConversation(conv.id)">
+                                    <span style="color: var(--el-color-danger);">{{ t('delete') }}</span>
+                                  </el-dropdown-item>
+                                </template>
                               </el-dropdown-menu>
                             </template>
                           </el-dropdown>
@@ -2922,6 +2946,48 @@ function updateElement(el, rawMarkdown, formatFn) {
           {{ searchKeyword ? t('noResults') : t('noChatHistory') }}
         </div>
       </div>
+        </el-dialog>
+
+        <!-- ── Lover：新建开发会话对话框 ── -->
+        <el-dialog
+          append-to-body
+          v-model="showCreateDevSessionDialog"
+          :title="t('newDevSession')"
+          width="420px"
+        >
+          <el-form label-position="top">
+            <el-form-item :label="t('devSessionTitle')">
+              <el-input
+                v-model="newDevSessionForm.title"
+                :placeholder="t('devSessionTitlePlaceholder')"
+                @keyup.enter="createDevConversation"
+              ></el-input>
+            </el-form-item>
+            <el-form-item :label="t('devSessionCcPath')">
+              <el-input
+                v-model="newDevSessionForm.ccPath"
+                :placeholder="t('devSessionCcPathPlaceholder')"
+              ></el-input>
+            </el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="showCreateDevSessionDialog = false">{{ t('cancel') }}</el-button>
+            <el-button type="primary" @click="createDevConversation">{{ t('create') }}</el-button>
+          </template>
+        </el-dialog>
+
+        <!-- ── Lover：重置主会话确认对话框 ── -->
+        <el-dialog
+          append-to-body
+          v-model="showResetMainSessionDialog"
+          :title="t('resetMainSession')"
+          width="420px"
+        >
+          <p style="margin: 0; color: var(--el-text-color-regular);">{{ t('resetMainSessionWarning') }}</p>
+          <template #footer>
+            <el-button @click="showResetMainSessionDialog = false">{{ t('cancel') }}</el-button>
+            <el-button type="danger" @click="confirmResetMainSession">{{ t('reset') }}</el-button>
+          </template>
         </el-dialog>
 
         <el-dialog

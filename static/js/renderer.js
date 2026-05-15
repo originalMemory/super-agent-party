@@ -1714,10 +1714,17 @@ const app = Vue.createApp({
       const keyword = (this.searchKeyword || '').trim().toLowerCase();
 
       return groups
-        .map(group => ({
-          ...group,
-          conversations: conversations.filter(conv => (conv.groupId || 'default') === group.id)
-        }))
+        .map(group => {
+          let groupConvs = conversations.filter(conv => (conv.groupId || 'default') === group.id);
+          // 主分组：kind=main 置顶，其余按时间倒序
+          if (group.id === 'default') {
+            groupConvs = [
+              ...groupConvs.filter(c => c.kind === 'main'),
+              ...groupConvs.filter(c => c.kind !== 'main'),
+            ];
+          }
+          return { ...group, conversations: groupConvs };
+        })
         .filter(group => {
           if (!keyword) return true;
           return group.conversations.length > 0 || (group.name || '').toLowerCase().includes(keyword);
