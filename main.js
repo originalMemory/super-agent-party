@@ -507,7 +507,8 @@ async function startBackend() {
 
         if (isDev) {
             // 开发模式下在控制台打印原始输出，方便排查
-            process.stdout.write(`[PY] ${output}`);
+            // try/catch 防止 stdout 管道断开时抛 write EIO 导致连续致命错误弹窗
+            try { process.stdout.write(`[PY] ${output}`); } catch (_) {}
         }
 
         // 2. 尝试解析端口握手信号
@@ -1940,16 +1941,18 @@ app.on('window-all-closed', () => {
 
 // 处理渲染进程崩溃
 app.on('render-process-gone', (event, webContents, details) => {
-  console.error('渲染进程崩溃:', details);
-  console.error('退出代码:', details.exitCode, '原因:', details.reason);
+  try { console.error('渲染进程崩溃:', details); } catch (_) {}
+  try { console.error('退出代码:', details.exitCode, '原因:', details.reason); } catch (_) {}
   // 将 details 写入文件以便后期分析
-  fs.appendFileSync('crash.log', JSON.stringify(details) + '\n');
+  try { fs.appendFileSync('crash.log', JSON.stringify(details) + '\n'); } catch (_) {}
 });
 // 处理主进程未捕获异常
 process.on('uncaughtException', (err) => {
-  console.error('未捕获异常:', err)
+  // EIO 等管道断开错误不弹窗，直接忽略
+  if (err.code === 'EIO' || err.message === 'write EIO') return;
+  try { console.error('未捕获异常:', err); } catch (_) {}
   if (loadingWindow && !loadingWindow.isDestroyed()) {
-    loadingWindow.close()
+    try { loadingWindow.close(); } catch (_) {}
   }
   dialog.showErrorBox('致命错误', `未捕获异常: ${err.message}`)
   app.quit()

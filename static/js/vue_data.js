@@ -185,13 +185,6 @@ let vue_data = {
     chatHistoryPanelWidth: 320,
     draftConversationGroupId: 'default',
     activeConversationGroupId: 'default',
-    showConversationGroupDialog: false,
-    conversationGroupDialogMode: 'create',
-    conversationGroupForm: {
-      id: null,
-      name: '',
-      memoryEnabled: false,
-    },
     showConversationRenameDialog: false,
     conversationRenameForm: {
       id: null,
@@ -202,12 +195,6 @@ let vue_data = {
       id: null,
       title: '',
       deleteMemory: false,
-    },
-    showDeleteGroupDialog: false,
-    deleteGroupForm: {
-      id: null,
-      name: '',
-      conversationCount: 0,
     },
     showHistoryDialog: false,
     showLLMToolsDialog: false,

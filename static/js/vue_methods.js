@@ -642,103 +642,11 @@ let vue_methods = {
       }
       this.chatHistoryPanelOpen = !this.chatHistoryPanelOpen;
     },
-    createConversationGroup() {
-      this.conversationGroupDialogMode = 'create';
-      this.conversationGroupForm = {
-        id: null,
-        name: '',
-        memoryEnabled: false,
-      };
-      this.showConversationGroupDialog = true;
-    },
-    openRenameConversationGroupDialog(group) {
-      if (!group?.id || group.id === 'default') return;
-      this.conversationGroupDialogMode = 'rename';
-      this.conversationGroupForm = {
-        id: group.id,
-        name: group.name || '',
-        memoryEnabled: !!group.memoryConfig?.enabled,
-      };
-      this.showConversationGroupDialog = true;
-    },
-    async submitConversationGroupDialog() {
-      this.ensureConversationGroups();
-      const name = String(this.conversationGroupForm?.name || '').trim();
-      if (!name) {
-        showNotification(this.t('groupNameRequired'), 'error');
-        return;
-      }
-
-      const currentGroupId = this.conversationGroupForm?.id || null;
-      const exists = this.conversationGroups.some(group =>
-        group.id !== currentGroupId && (group.name || '').trim() === name
-      );
-      if (exists) {
-        showNotification(this.t('groupNameExists'), 'error');
-        return;
-      }
-
-      if (this.conversationGroupDialogMode === 'rename' && currentGroupId) {
-        const targetGroup = this.conversationGroups.find(group => group.id === currentGroupId);
-        if (!targetGroup) return;
-        targetGroup.name = name;
-        targetGroup.memoryConfig = {
-          ...(targetGroup.memoryConfig || {}),
-          enabled: !!this.conversationGroupForm?.memoryEnabled,
-        };
-        await this.saveConversations();
-        this.showConversationGroupDialog = false;
-        showNotification(this.t('groupRenamed'), 'success');
-        return;
-      }
-
-      const newGroup = {
-        id: uuid.v4(),
-        name,
-        createdAt: Date.now(),
-        memoryConfig: {
-          enabled: !!this.conversationGroupForm?.memoryEnabled,
-        }
-      };
-
-      this.conversationGroups.push(newGroup);
-      this.draftConversationGroupId = newGroup.id;
-      this.activeConversationGroupId = newGroup.id;
-      await this.saveConversations();
-      this.showConversationGroupDialog = false;
-      showNotification(this.t('groupCreated'), 'success');
-    },
     async startConversationInGroup(groupId = null) {
       this.ensureConversationGroups();
       const targetGroupId = groupId || this.activeConversationGroupId || this.draftConversationGroupId || 'default';
       this.setActiveConversationGroup(targetGroupId);
       await this.clearMessages(targetGroupId);
-    },
-    async moveConversationToGroup(convId, groupId) {
-      this.ensureConversationGroups();
-      const targetGroupId = groupId || 'default';
-      const conversation = this.conversations.find(conv => conv.id === convId);
-      if (!conversation) return;
-
-      conversation.groupId = targetGroupId;
-      if (convId === this.conversationId) {
-        this.draftConversationGroupId = targetGroupId;
-        this.activeConversationGroupId = targetGroupId;
-      }
-      await this.saveConversations();
-    },
-    openDeleteGroupDialog(group) {
-      if (!group?.id || group.id === 'default') return;
-      this.deleteGroupForm = {
-        id: group.id,
-        name: group.name || '',
-        conversationCount: this.conversations.filter(conv => (conv.groupId || 'default') === group.id).length,
-      };
-      this.showDeleteGroupDialog = true;
-    },
-    getDeleteGroupWarningText() {
-      const count = this.deleteGroupForm?.conversationCount || 0;
-      return String(this.t('deleteGroupWillDeleteChats')).replace('{count}', count);
     },
     async deleteConversationById(conversationId, options = {}) {
       const response = await fetch('/api/conversations/delete', {
@@ -761,19 +669,6 @@ let vue_methods = {
       }
 
       this.conversations = this.conversations.filter(c => c.id !== conversationId);
-    },
-    async clearGroupMemoriesByGroupId(groupId) {
-      const response = await fetch('/api/group-memory/clear-group', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          group_id: this.stringifyEntityId(groupId),
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('delete_failed');
-      }
     },
     async clearAllGroupMemories() {
       const response = await fetch('/api/group-memory/clear-all', {
@@ -849,81 +744,6 @@ let vue_methods = {
         if (error?.message === 'delete_failed') {
           showNotification(this.t('deleteFailed') || 'Delete failed', 'error');
         }
-      }
-    },
-    async deleteConversationGroup(groupId, options = {}) {
-      this.ensureConversationGroups();
-      if (!groupId || groupId === 'default') return;
-
-      const groupConversationIds = this.conversations
-        .filter(conv => (conv.groupId || 'default') === groupId)
-        .map(conv => conv.id);
-
-        for (const conversationId of groupConversationIds) {
-          await this.deleteConversationById(conversationId, {
-            deleteMemory: true,
-          });
-        }
-        await this.clearGroupMemoriesByGroupId(groupId);
-
-        this.conversationGroups = this.conversationGroups.filter(group => group.id !== groupId);
-
-      if (this.draftConversationGroupId === groupId) {
-        this.draftConversationGroupId = 'default';
-      }
-      if (this.activeConversationGroupId === groupId) {
-        this.activeConversationGroupId = 'default';
-      }
-
-      await this.saveConversations();
-      if (!options.silent) {
-        showNotification(this.t('groupDeleted'), 'success');
-      }
-    },
-
-    async clearConversationGroupChats(groupId) {
-      this.ensureConversationGroups();
-      if (!groupId) return;
-      try {
-        await this.$confirm(this.t('clearGroupChatsConfirm'), this.t('warning'), {
-          confirmButtonText: this.t('confirm'),
-          cancelButtonText: this.t('cancel'),
-          type: 'warning'
-        });
-
-        const groupConversationIds = this.conversations
-          .filter(conv => (conv.groupId || 'default') === groupId)
-          .map(conv => conv.id);
-
-        for (const conversationId of groupConversationIds) {
-          await this.deleteConversationById(conversationId, {
-            deleteMemory: true,
-          });
-        }
-        await this.clearGroupMemoriesByGroupId(groupId);
-
-        if (this.conversationId === null) {
-          this.messages = [{ id: Date.now() + Math.random(), role: 'system', content: this.system_prompt }];
-          this.fileLinks = [];
-        }
-
-        await this.saveConversations();
-        showNotification(this.t('groupChatsCleared'), 'success');
-      } catch (error) {
-        if (error?.message === 'delete_failed') {
-          showNotification(this.t('deleteFailed') || 'Delete failed', 'error');
-        }
-      }
-    },
-
-    async confirmDeleteGroupDeletion() {
-      const groupId = this.deleteGroupForm?.id;
-      if (!groupId) return;
-      try {
-        await this.deleteConversationGroup(groupId);
-        this.showDeleteGroupDialog = false;
-      } catch (error) {
-        showNotification(this.t('deleteFailed') || 'Delete failed', 'error');
       }
     },
     openRenameConversationDialog(conversation) {

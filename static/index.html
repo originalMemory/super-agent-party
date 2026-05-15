@@ -983,12 +983,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                 
                 <!-- 按钮并排且紧凑 -->
                 <div class="history-quick-tools">
-                  <!-- PR功能：新建分组按钮 -->
-                   <el-tooltip :content="t('newGroup')" placement="top">
-                    <el-button @click="createConversationGroup()" circle size="small" class="quick-tool-btn" :title="t('newGroup')">
-                      <i class="fa-solid fa-folder-plus"></i>
-                    </el-button>
-                  </el-tooltip>
                   <el-tooltip :content="t('keepLastWeek')" placement="top">
                     <el-button @click="keepLastWeek" circle size="small" class="quick-tool-btn" :title="t('keepLastWeek')">
                       <i class="fa-solid fa-calendar-week"></i>
@@ -1019,43 +1013,8 @@ function updateElement(el, rawMarkdown, formatFn) {
                     <span class="item-title" style="font-weight: bold; font-size: 13px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 15px;">
                       {{ group.name }} ({{ group.conversations.length }})
                     </span>
-                    <!-- 【修改点2】：操作区强行横向排列，重置按钮原有的 absolute 定位 -->
+                    <!-- 操作区：仅保留折叠/展开 -->
                     <div class="group-actions" style="display: flex; align-items: center; flex-shrink: 0;" @click.stop>
-                      <el-dropdown trigger="click" placement="bottom-end" @click.stop>
-                        <!-- 这个按钮现在对所有组（包括默认组）都可见 -->
-                        <el-button class="item-delete-btn" circle style="position: relative; right: auto; top: auto; transform: none; margin-right: 4px; display: flex; align-items: center; justify-content: center;">
-                          <i class="fa-solid fa-ellipsis"></i>
-                        </el-button>
-                        
-                        <template #dropdown>
-                          <el-dropdown-menu>
-                            <!-- 1. 重命名：仅限自定义分组 -->
-                            <el-dropdown-item 
-                              v-if="group.id !== 'default'" 
-                              @click="openRenameConversationGroupDialog(group)">
-                              <i class="fa-solid fa-pen-to-square" style="margin-right: 8px;"></i>{{ t('rename') }}
-                            </el-dropdown-item>
-
-                            <!-- 2. 清空组内对话：所有分组都适用 ✨ -->
-                            <el-dropdown-item 
-                              @click="clearConversationGroupChats(group.id)">
-                              <span style="color: var(--el-color-warning);">
-                                <i class="fa-solid fa-eraser" style="margin-right: 8px;"></i>{{ t('clearGroupChats') }}
-                              </span>
-                            </el-dropdown-item>
-
-                            <!-- 3. 删除分组：仅限自定义分组 -->
-                            <el-dropdown-item 
-                              v-if="group.id !== 'default'" 
-                              divided 
-                              @click="openDeleteGroupDialog(group)">
-                              <span style="color: var(--el-color-danger);">
-                                <i class="fa-solid fa-trash-can" style="margin-right: 8px;"></i>{{ t('delete') }}
-                              </span>
-                            </el-dropdown-item>
-                          </el-dropdown-menu>
-                        </template>
-                      </el-dropdown>
                       <el-button class="item-delete-btn" circle style="position: relative; right: auto; top: auto; transform: none; display: flex; align-items: center; justify-content: center;" @click.stop="toggleConversationGroupCollapsed(group.id)">
                         <i :class="isConversationGroupCollapsed(group.id) ? 'fa-solid fa-chevron-right' : 'fa-solid fa-chevron-down'"></i>
                       </el-button>
@@ -1091,20 +1050,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                             <template #dropdown>
                               <el-dropdown-menu>
                                 <el-dropdown-item @click="openRenameConversationDialog(conv)">{{ t('rename') }}</el-dropdown-item>
-                                <!-- PR功能：移动到分组 -->
-                                <el-dropdown placement="right-start" trigger="hover">
-                                  <div class="el-dropdown-menu__item" style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span>{{ t('moveToGroup') }}</span>
-                                    <i class="fa-solid fa-angle-right" style="margin-left: 8px;"></i>
-                                  </div>
-                                  <template #dropdown>
-                                    <el-dropdown-menu>
-                                      <el-dropdown-item v-for="moveGroup in conversationGroups" :key="moveGroup.id" @click="moveConversationToGroup(conv.id, moveGroup.id)">
-                                        {{ moveGroup.name }}
-                                      </el-dropdown-item>
-                                    </el-dropdown-menu>
-                                  </template>
-                                </el-dropdown>
                                 <el-dropdown-item divided @click="confirmDeleteConversation(conv.id)">
                                   <span style="color: var(--el-color-danger);">{{ t('delete') }}</span>
                                 </el-dropdown-item>
@@ -2981,33 +2926,6 @@ function updateElement(el, rawMarkdown, formatFn) {
 
         <el-dialog
           append-to-body
-          v-model="showConversationGroupDialog"
-          :title="conversationGroupDialogMode === 'create' ? t('createGroup') : t('renameGroup')"
-          width="420px"
-        >
-          <el-form label-position="top">
-            <el-form-item :label="t('groupNamePlaceholder')">
-              <el-input
-                v-model="conversationGroupForm.name"
-                :placeholder="t('groupNamePlaceholder')"
-                @keyup.enter="submitConversationGroupDialog"
-              ></el-input>
-            </el-form-item>
-            <el-form-item :label="t('groupMemoryEnabled')">
-              <div class="group-memory-switch-row">
-                <el-switch v-model="conversationGroupForm.memoryEnabled"></el-switch>
-                <span class="group-memory-switch-hint">{{ t('groupMemoryEnabledHint') }}</span>
-              </div>
-            </el-form-item>
-          </el-form>
-          <template #footer>
-            <el-button @click="showConversationGroupDialog = false">{{ t('cancel') }}</el-button>
-            <el-button type="primary" @click="submitConversationGroupDialog">{{ t('confirm') }}</el-button>
-          </template>
-        </el-dialog>
-
-        <el-dialog
-          append-to-body
           v-model="showConversationRenameDialog"
           :title="t('renameConversation')"
           width="420px"
@@ -3042,21 +2960,6 @@ function updateElement(el, rawMarkdown, formatFn) {
           <template #footer>
             <el-button @click="showDeleteConversationDialog = false">{{ t('cancel') }}</el-button>
             <el-button type="danger" @click="confirmDeleteConversationDeletion">{{ t('delete') }}</el-button>
-          </template>
-        </el-dialog>
-
-        <el-dialog
-          append-to-body
-          v-model="showDeleteGroupDialog"
-          :title="t('delete')"
-          width="420px"
-        >
-          <div class="chat-history-confirm-copy">{{ t('confirmDeleteGroup') }}</div>
-          <div class="chat-history-confirm-title">{{ deleteGroupForm.name }}</div>
-          <div class="chat-history-confirm-note">{{ getDeleteGroupWarningText() }}</div>
-          <template #footer>
-            <el-button @click="showDeleteGroupDialog = false">{{ t('cancel') }}</el-button>
-            <el-button type="danger" @click="confirmDeleteGroupDeletion">{{ t('delete') }}</el-button>
           </template>
         </el-dialog>
 
