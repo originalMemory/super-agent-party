@@ -1070,7 +1070,17 @@ function updateElement(el, rawMarkdown, formatFn) {
                                     <i class="fa-solid fa-rotate-left" style="margin-right: 6px;"></i>{{ t('resetMainSession') }}
                                   </el-dropdown-item>
                                 </template>
-                                <!-- 开发会话 / 普通会话：重命名 + 删除 -->
+                                <!-- 开发会话：重命名 + 归档 + 删除 -->
+                                <template v-else-if="conv.kind === 'dev'">
+                                  <el-dropdown-item @click="openRenameConversationDialog(conv)">{{ t('rename') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="openArchiveDevSessionDialog(conv.id)">
+                                    <i class="fa-solid fa-box-archive" style="margin-right: 6px;"></i>{{ t('archiveDevSession') }}
+                                  </el-dropdown-item>
+                                  <el-dropdown-item divided @click="confirmDeleteConversation(conv.id)">
+                                    <span style="color: var(--el-color-danger);">{{ t('delete') }}</span>
+                                  </el-dropdown-item>
+                                </template>
+                                <!-- 普通会话：重命名 + 删除 -->
                                 <template v-else>
                                   <el-dropdown-item @click="openRenameConversationDialog(conv)">{{ t('rename') }}</el-dropdown-item>
                                   <el-dropdown-item divided @click="confirmDeleteConversation(conv.id)">
@@ -3016,6 +3026,46 @@ function updateElement(el, rawMarkdown, formatFn) {
           <template #footer>
             <el-button @click="showResetMainSessionDialog = false">{{ t('cancel') }}</el-button>
             <el-button type="danger" @click="confirmResetMainSession">{{ t('reset') }}</el-button>
+          </template>
+        </el-dialog>
+
+        <!-- ── Lover：开发会话归档弹窗 ── -->
+        <el-dialog
+          append-to-body
+          v-model="showArchiveDevDialog"
+          :title="t('archiveDevSession')"
+          width="560px"
+          :close-on-click-modal="false"
+        >
+          <el-form label-position="top">
+            <el-form-item :label="t('archiveSummaryLabel')">
+              <el-input
+                v-model="archiveDevForm.summary"
+                type="textarea"
+                :rows="6"
+                :placeholder="t('archiveSummaryPlaceholder')"
+              ></el-input>
+              <div style="margin-top: 4px; display: flex; align-items: center; gap: 8px;">
+                <el-button size="small" @click="generateArchiveSummary" :loading="archiveDevForm.generating" plain>
+                  <i class="fa-solid fa-wand-magic-sparkles" style="margin-right: 4px;"></i>{{ t('aiDraftSummary') }}
+                </el-button>
+                <span v-if="archiveDevForm.generating" style="font-size: 12px; opacity: 0.6;">{{ t('draftingInProgress') }}</span>
+              </div>
+            </el-form-item>
+            <el-form-item :label="t('archiveFilePathLabel')">
+              <el-input v-model="archiveDevForm.filePath" :placeholder="t('archiveFilePathPlaceholder')"></el-input>
+              <div style="font-size: 11px; opacity: 0.5; margin-top: 2px;">{{ t('archiveFilePathHint') }}</div>
+            </el-form-item>
+            <el-form-item>
+              <el-checkbox v-model="loverSettings.devArchiveQuickSave">{{ t('devArchiveQuickSaveLabel') }}</el-checkbox>
+              <div style="font-size: 11px; opacity: 0.5;">{{ t('devArchiveQuickSaveHint') }}</div>
+            </el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="showArchiveDevDialog = false">{{ t('cancel') }}</el-button>
+            <el-button type="primary" @click="confirmArchiveDevSession" :disabled="!archiveDevForm.summary.trim()">
+              <i class="fa-solid fa-box-archive" style="margin-right: 4px;"></i>{{ t('confirmArchive') }}
+            </el-button>
           </template>
         </el-dialog>
 

@@ -742,6 +742,163 @@ let vue_methods = {
       }
     },
 
+    // ── 开发会话归档 ──────────────────────────────────────────────────
+
+    _generateArchiveFilePath(conv) {
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      const slug = (conv.title || 'untitled')
+        .toLowerCase()
+        .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 40);
+      return `lover/memory/${yyyy}/${mm}/${yyyy}-${mm}-${dd}-work-${slug}.md`;
+    },
+
+    _buildFallbackSummary(conv) {
+      const now = new Date();
+      const timeStr = now.toISOString().slice(0, 19).replace('T', ' ');
+      const firstMsg = conv.messages?.[1]; // skip system prompt
+      const lastMsg = conv.messages?.[conv.messages.length - 1];
+      const lines = [
+        `# ${conv.title || 'Dev Session'}`,
+        '',
+        `- **归档时间**: ${timeStr}`,
+        conv.cc_path ? `- **工作区**: ${conv.cc_path}` : null,
+        `- **消息数**: ${(conv.messages?.length || 1) - 1}`,
+        '',
+        '> 自动生成的元信息摘要（AI 起草失败时降级）',
+      ].filter(Boolean);
+      return lines.join('\n');
+    },
+
+    openArchiveDevSessionDialog(convId) {
+      const conv = this.conversations.find(c => c.id === convId);
+      if (!conv) return;
+
+      this.archiveDevForm.convId = convId;
+      this.archiveDevForm.filePath = this._generateArchiveFilePath(conv);
+      this.archiveDevForm.summary = '';
+      this.archiveDevForm.generating = false;
+
+      if (this.loverSettings.devArchiveQuickSave) {
+        // 快速保存：跳过弹窗，用降级摘要直接归档
+        this.archiveDevForm.summary = this._buildFallbackSummary(conv);
+        this.confirmArchiveDevSession();
+        return;
+      }
+
+      this.showArchiveDevDialog = true;
+    },
+
+    async generateArchiveSummary() {
+      const convId = this.archiveDevForm.convId;
+      const conv = this.conversations.find(c => c.id === convId);
+      if (!conv || !conv.messages || conv.messages.length <= 1) {
+        this.archiveDevForm.summary = this._buildFallbackSummary(conv || { title: '' });
+        return;
+      }
+
+      this.archiveDevForm.generating = true;
+
+      try {
+        // 取最近 20 条非 system 消息作为上下文
+        const recentMessages = conv.messages
+          .filter(m => m.role !== 'system')
+          .slice(-20)
+          .map(m => ({
+            role: m.role,
+            content: m.pure_content || m.content || '',
+          }));
+
+        const promptMsg = {
+          role: 'user',
+          content: [
+            '请基于以上对话内容，起草一段开发会话摘要（Markdown 格式），要求：',
+            '1. 标题用 `# <任务简述>`',
+            '2. 包含：关键产出/决策、未决问题（如有）',
+            '3. 简洁精炼，不超过 300 字',
+            '4. 仅输出摘要本身，不要额外解释',
+          ].join('\n'),
+        };
+
+        const response = await fetch('/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: this.mainAgent,
+            messages: [...recentMessages, promptMsg],
+            stream: false,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const content = data.choices?.[0]?.message?.content;
+          if (content && content.trim()) {
+            this.archiveDevForm.summary = content.trim();
+            return;
+          }
+        }
+
+        // 降级
+        this.archiveDevForm.summary = this._buildFallbackSummary(conv);
+      } catch (err) {
+        console.error('Archive summary generation failed:', err);
+        this.archiveDevForm.summary = this._buildFallbackSummary(conv);
+      } finally {
+        this.archiveDevForm.generating = false;
+      }
+    },
+
+    async confirmArchiveDevSession() {
+      const { convId, summary, filePath } = this.archiveDevForm;
+      if (!convId || !summary.trim()) return;
+
+      try {
+        // 落盘摘要文件（通过后端 API）
+        const writeResp = await fetch('/api/lover/archive-dev-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversation_id: this.stringifyEntityId(convId),
+            summary: summary.trim(),
+            file_path: filePath.trim(),
+          }),
+        });
+
+        if (!writeResp.ok) {
+          // 后端 API 尚未实现时，仅做前端处理
+          console.warn('Archive API not available, doing frontend-only cleanup');
+        }
+
+        // 前端：删除该对话的消息历史，移到归档分组
+        const conv = this.conversations.find(c => c.id === convId);
+        if (conv) {
+          conv.messages = [];
+          conv.groupId = 'archive';
+          conv.kind = 'archive';
+          conv.archived_at = Date.now();
+          conv.summary_path = filePath.trim();
+        }
+
+        // 如果当前正在看该对话，切到主会话
+        if (this.conversationId === convId) {
+          this.returnToMainSession();
+        }
+
+        await this.saveConversations();
+        this.showArchiveDevDialog = false;
+        showNotification(this.t('devSessionArchived'), 'success');
+
+      } catch (err) {
+        console.error('Archive failed:', err);
+        showNotification(this.t('archiveFailed') || 'Archive failed', 'error');
+      }
+    },
+
     // ────────────────────────────────────────────────────────────────
 
     async deleteConversationById(conversationId, options = {}) {
