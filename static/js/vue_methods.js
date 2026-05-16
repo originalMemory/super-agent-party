@@ -258,6 +258,10 @@ let vue_methods = {
             messages: this.messages,
             fileLinks: this.fileLinks,
             system_prompt: this.system_prompt,
+            kind: null,
+            cc_path: null,
+            archived_at: null,
+            summary_path: null,
         };
         this.conversations.unshift(newConv);
     } else {
@@ -3098,8 +3102,10 @@ let vue_methods = {
                     messages: this.messages,
                     fileLinks: this.fileLinks,
                     system_prompt: this.system_prompt,
-                    ...(pendingKind ? { kind: pendingKind } : {}),
-                    ...(pendingCcPath ? { cc_path: pendingCcPath } : {}),
+                    kind: pendingKind || null,
+                    cc_path: pendingCcPath || null,
+                    archived_at: null,
+                    summary_path: null,
                 };
                 this.conversations.unshift(newConv);
             } else {

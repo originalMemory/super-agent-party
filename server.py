@@ -3670,7 +3670,21 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
             from py.lover_bootstrap import build_lover_system_prompt as _build_lover_system_prompt
 
             query_text = _extract_text_content(user_prompt)
-            _ws_path = cli_settings.get("cc_path") if cli_settings.get("enabled") else None
+
+            # 优先从当前会话对象取 cc_path（dev 会话绑定的工作区），fallback 到全局 CLISettings
+            _conv_obj = None
+            _conv_kind = None
+            if request.conversation_id:
+                covs_data = await load_covs()
+                for _c in (covs_data.get("conversations") or []):
+                    if _c.get("id") == request.conversation_id:
+                        _conv_obj = _c
+                        break
+            if _conv_obj:
+                _conv_kind = _conv_obj.get("kind")
+                _ws_path = _conv_obj.get("cc_path") or (cli_settings.get("cc_path") if cli_settings.get("enabled") else None)
+            else:
+                _ws_path = cli_settings.get("cc_path") if cli_settings.get("enabled") else None
             if _ws_path and not Path(_ws_path).is_dir():
                 _ws_path = None
             lover_prompt = await _build_lover_system_prompt(
@@ -3679,7 +3693,7 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                 workspace_path=_ws_path,
             )
             content_replace(request.messages, 'system', lover_prompt)
-            print("[lover/bootstrap] system prompt rebuilt")
+            print(f"[lover/bootstrap] system prompt rebuilt (kind={_conv_kind}, ws={_ws_path})")
         request = await tools_change_messages(request, settings)
         # 如果系统消息为空字符串或者仅包含空白符，则将系统消息改成"you are a helpful assistant."
         if request.messages[0]['role'] == 'system' and not request.messages[0]['content'].strip():
