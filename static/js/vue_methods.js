@@ -693,13 +693,31 @@ let vue_methods = {
     },
     async createDevConversation() {
       this.showCreateDevSessionDialog = false;
-      // 在主分组开启新对话，并标记为 dev kind
+      const title = this.newDevSessionForm.title?.trim() || '';
+      const ccPath = this.newDevSessionForm.ccPath?.trim() || null;
+
+      try {
+        const resp = await fetch('/api/lover/create-dev-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, cc_path: ccPath }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const newConv = data.conversation;
+          if (newConv) {
+            this.conversations.unshift(newConv);
+            this.loadConversation(newConv.id);
+            return;
+          }
+        }
+      } catch (_) {}
+
+      // fallback：后端不可用时走前端创建
       await this.startConversationInGroup('default');
-      // 找到当前刚创建（conversationId 为 null，或刚写入的）会话并打标
-      // kind 在首次保存消息时由 sendMessage 写入
       this._pendingNewConvKind = 'dev';
-      this._pendingNewConvCcPath = this.newDevSessionForm.ccPath?.trim() || null;
-      this._pendingNewConvTitle = this.newDevSessionForm.title?.trim() || '';
+      this._pendingNewConvCcPath = ccPath;
+      this._pendingNewConvTitle = title;
     },
     openResetMainSessionDialog(convId) {
       this.pendingResetConvId = convId;
@@ -708,6 +726,25 @@ let vue_methods = {
     async confirmResetMainSession() {
       const convId = this.pendingResetConvId;
       if (!convId) return;
+
+      try {
+        const resp = await fetch('/api/lover/reset-main-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversation_id: this.stringifyEntityId(convId) }),
+        });
+        if (!resp.ok) {
+          showNotification(this.t('resetFailed') || 'Reset failed', 'error');
+          this.showResetMainSessionDialog = false;
+          this.pendingResetConvId = null;
+          return;
+        }
+      } catch (e) {
+        showNotification(this.t('resetFailed') || 'Reset failed', 'error');
+        this.showResetMainSessionDialog = false;
+        this.pendingResetConvId = null;
+        return;
+      }
 
       const conv = this.conversations.find(c => c.id === convId);
       if (conv) {
@@ -724,7 +761,6 @@ let vue_methods = {
         this.requestScrollToBottom();
       }
 
-      try { await this.saveConversations(); } catch (_) {}
       this.showResetMainSessionDialog = false;
       this.pendingResetConvId = null;
       showNotification(this.t('mainSessionReset'), 'success');
@@ -884,8 +920,7 @@ let vue_methods = {
       if (!convId || !summary.trim()) return;
 
       try {
-        // 落盘摘要文件（通过后端 API）
-        const writeResp = await fetch('/api/lover/archive-dev-session', {
+        const resp = await fetch('/api/lover/archive-dev-session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -895,27 +930,22 @@ let vue_methods = {
           }),
         });
 
-        if (!writeResp.ok) {
-          // 后端 API 尚未实现时，仅做前端处理
-          console.warn('Archive API not available, doing frontend-only cleanup');
-        }
+        const result = resp.ok ? await resp.json() : null;
 
-        // 前端：删除该对话的消息历史，移到归档分组
+        // 前端同步状态
         const conv = this.conversations.find(c => c.id === convId);
         if (conv) {
           conv.messages = [];
           conv.groupId = 'archive';
           conv.kind = 'archive';
           conv.archived_at = Date.now();
-          conv.summary_path = filePath.trim();
+          conv.summary_path = result?.summary_path || filePath.trim();
         }
 
-        // 如果当前正在看该对话，切到主会话
         if (this.conversationId === convId) {
           this.returnToMainSession();
         }
 
-        await this.saveConversations();
         this.showArchiveDevDialog = false;
         showNotification(this.t('devSessionArchived'), 'success');
 
