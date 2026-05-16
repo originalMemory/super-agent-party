@@ -1708,6 +1708,20 @@ const app = Vue.createApp({
             })
             .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     },
+    isArchiveConversation() {
+      if (!this.conversationId || !Array.isArray(this.conversations)) return false;
+      const conv = this.conversations.find(c => c.id === this.conversationId);
+      return (conv?.groupId || 'default') === 'archive';
+    },
+    currentConversationTitle() {
+      if (!this.conversationId || !Array.isArray(this.conversations)) return '';
+      const conv = this.conversations.find(c => c.id === this.conversationId);
+      return conv?.title || '';
+    },
+    mainConversation() {
+      if (!Array.isArray(this.conversations)) return null;
+      return this.conversations.find(c => (c.groupId || 'default') === 'default' && c.kind === 'main') || null;
+    },
     groupedFilteredConversations() {
       const groups = Array.isArray(this.conversationGroups) ? this.conversationGroups : [];
       const conversations = Array.isArray(this.filteredConversations) ? this.filteredConversations : [];

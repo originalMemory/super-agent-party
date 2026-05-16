@@ -1101,6 +1101,14 @@ function updateElement(el, rawMarkdown, formatFn) {
                   ref="chatAreaRef"
                   :class="{ collapsed: !chatAreaOpen }" 
                   v-show="chatAreaOpen">
+                <!-- 归档会话只读 banner -->
+                <div v-if="isArchiveConversation" class="archive-readonly-banner">
+                  <i class="fa-solid fa-box-archive"></i>
+                  <span>{{ t('archiveReadonlyTip') }}</span>
+                  <el-button size="small" @click="returnToMainSession" plain>
+                    <i class="fa-solid fa-house" style="margin-right:4px;"></i>{{ t('returnToMainSession') }}
+                  </el-button>
+                </div>
                 <div class="messages-container" ref="messagesContainer" v-if="!isCapsuleMode" @click.capture="handleMessageLinkClick">
                   <!-- 添加 is-group-mode 类 -->
                   <div v-for="(message, index) in messages" :key="index" class="message" :class="[message.role, { 'is-group-mode': isGroupMode }]">
@@ -1284,39 +1292,53 @@ function updateElement(el, rawMarkdown, formatFn) {
 
                       <!-- 操作按钮区 -->
                       <div class="message-actions" v-if="!allBriefly||message.role !== 'system'||index === 0">
-                        <el-tooltip v-if="message.role !== 'assistant'" :content="t('edit')" placement="bottom">
-                          <el-button @click="openEditDialog(message.role, message.content,index)" circle size="small"><i class="fa-solid fa-pen-to-square"></i></el-button>
-                        </el-tooltip>
-                        <el-tooltip v-if="message.role === 'assistant'" :content="t('view')" placement="bottom">
-                          <el-button @click="openEditDialog(message.role, message.pure_content,index)" circle size="small"><i class="fa-solid fa-pen-to-square"></i></el-button>
-                        </el-tooltip>
-                        <el-tooltip v-if="message.role === 'assistant'" :content="t('briefly')" placement="bottom">
-                          <el-button class="briefly-btn" @click="toggleBriefly(index)" circle size="small"><i class="fa-solid fa-asterisk"></i></el-button>
-                        </el-tooltip>
-                        <el-tooltip v-if="message.role === 'assistant'" :content="t('rewrite')" placement="bottom">
-                          <el-button class="rewrite-btn" @click="rewrite(index)" circle size="small"><i class="fa-solid fa-rotate"></i></el-button>
-                        </el-tooltip>
-                        <el-tooltip :content="t('copy')" placement="bottom">
-                          <el-button class="copy-btn" @click="copyMessageContent(message)" circle size="small"><i class="fa-solid fa-copy"></i></el-button>
-                        </el-tooltip>
-                        <el-tooltip :content="t('translateAndMark')" placement="bottom">
-                          <el-button @click="translateMessage(index)" circle size="small"><i class="fa-solid fa-language"></i></el-button>
-                        </el-tooltip>
-                        <el-tooltip v-if="index !== 0" :content="t('delete')" placement="bottom">
-                          <el-button @click="deleteMessage(index)" circle size="small"><i class="fa-solid fa-trash-can"></i></el-button>
-                        </el-tooltip>
-                        <el-tooltip v-if="index == 0" :content="t('reset')" placement="bottom">
-                          <el-button @click="resetMessage(index)" circle size="small"><i class="fa-solid fa-rotate"></i></el-button>
-                        </el-tooltip>
-                        <el-tooltip v-if="message.role === 'system'&&index == 0" :content="t('oneClickExpand')" placement="bottom">
-                          <el-button class="Gen-btn" @click="toggleQuickGen(index)" :disabled="isQuickGenerating" circle size="small"><i class="fa-solid fa-wand-magic-sparkles"></i></el-button>
-                        </el-tooltip>
-                        <el-tooltip v-if="message.role === 'system'&&index == 0" :content="t('save')" placement="bottom">
-                          <el-button class="Gen-btn" @click="saveSystemPrompt(index)" :disabled="isQuickGenerating" circle size="small"><i class="fa-solid fa-floppy-disk"></i></el-button>
-                        </el-tooltip>
-                        <span class="msg-status" v-if="message.role === 'assistant' && !isMobile">
-                            {{ t('total_tokens')+': '+ (message?.total_tokens ?? 0) +',    '+ t('first_token_latency')+': '+(message?.first_token_latency ?? 0) +'ms'}}
-                        </span>
+                        <!-- 归档会话：仅显示"拉回主会话"和复制 -->
+                        <template v-if="isArchiveConversation">
+                          <el-tooltip v-if="message.role !== 'system'" :content="t('pullToMainSession')" placement="bottom">
+                            <el-button class="pull-to-main-btn" @click="pullToMainSession(message)" circle size="small" type="primary" plain>
+                              <i class="fa-solid fa-share-from-square"></i>
+                            </el-button>
+                          </el-tooltip>
+                          <el-tooltip :content="t('copy')" placement="bottom">
+                            <el-button class="copy-btn" @click="copyMessageContent(message)" circle size="small"><i class="fa-solid fa-copy"></i></el-button>
+                          </el-tooltip>
+                        </template>
+                        <!-- 普通会话：完整操作 -->
+                        <template v-else>
+                          <el-tooltip v-if="message.role !== 'assistant'" :content="t('edit')" placement="bottom">
+                            <el-button @click="openEditDialog(message.role, message.content,index)" circle size="small"><i class="fa-solid fa-pen-to-square"></i></el-button>
+                          </el-tooltip>
+                          <el-tooltip v-if="message.role === 'assistant'" :content="t('view')" placement="bottom">
+                            <el-button @click="openEditDialog(message.role, message.pure_content,index)" circle size="small"><i class="fa-solid fa-pen-to-square"></i></el-button>
+                          </el-tooltip>
+                          <el-tooltip v-if="message.role === 'assistant'" :content="t('briefly')" placement="bottom">
+                            <el-button class="briefly-btn" @click="toggleBriefly(index)" circle size="small"><i class="fa-solid fa-asterisk"></i></el-button>
+                          </el-tooltip>
+                          <el-tooltip v-if="message.role === 'assistant'" :content="t('rewrite')" placement="bottom">
+                            <el-button class="rewrite-btn" @click="rewrite(index)" circle size="small"><i class="fa-solid fa-rotate"></i></el-button>
+                          </el-tooltip>
+                          <el-tooltip :content="t('copy')" placement="bottom">
+                            <el-button class="copy-btn" @click="copyMessageContent(message)" circle size="small"><i class="fa-solid fa-copy"></i></el-button>
+                          </el-tooltip>
+                          <el-tooltip :content="t('translateAndMark')" placement="bottom">
+                            <el-button @click="translateMessage(index)" circle size="small"><i class="fa-solid fa-language"></i></el-button>
+                          </el-tooltip>
+                          <el-tooltip v-if="index !== 0" :content="t('delete')" placement="bottom">
+                            <el-button @click="deleteMessage(index)" circle size="small"><i class="fa-solid fa-trash-can"></i></el-button>
+                          </el-tooltip>
+                          <el-tooltip v-if="index == 0" :content="t('reset')" placement="bottom">
+                            <el-button @click="resetMessage(index)" circle size="small"><i class="fa-solid fa-rotate"></i></el-button>
+                          </el-tooltip>
+                          <el-tooltip v-if="message.role === 'system'&&index == 0" :content="t('oneClickExpand')" placement="bottom">
+                            <el-button class="Gen-btn" @click="toggleQuickGen(index)" :disabled="isQuickGenerating" circle size="small"><i class="fa-solid fa-wand-magic-sparkles"></i></el-button>
+                          </el-tooltip>
+                          <el-tooltip v-if="message.role === 'system'&&index == 0" :content="t('save')" placement="bottom">
+                            <el-button class="Gen-btn" @click="saveSystemPrompt(index)" :disabled="isQuickGenerating" circle size="small"><i class="fa-solid fa-floppy-disk"></i></el-button>
+                          </el-tooltip>
+                          <span class="msg-status" v-if="message.role === 'assistant' && !isMobile">
+                              {{ t('total_tokens')+': '+ (message?.total_tokens ?? 0) +',    '+ t('first_token_latency')+': '+(message?.first_token_latency ?? 0) +'ms'}}
+                          </span>
+                        </template>
                       </div>
 
                     </div>
@@ -1390,7 +1412,14 @@ function updateElement(el, rawMarkdown, formatFn) {
                       </el-tooltip>
 
                     </div>
-                <div class="input-container" v-if="!isCapsuleMode">
+
+                <!-- 归档会话只读提示（替代输入框） -->
+                <div v-if="isArchiveConversation && !isCapsuleMode" class="archive-input-placeholder">
+                  <i class="fa-solid fa-lock" style="margin-right:8px;opacity:0.5;"></i>
+                  <span style="opacity:0.6;">{{ t('archiveSessionReadonly') }}</span>
+                </div>
+
+                <div class="input-container" v-if="!isCapsuleMode && !isArchiveConversation">
                   
                   <!-- ✨✨✨ 新增：统一的外层包裹器 ✨✨✨ -->
                   <!-- tabindex="-1" 是为了让 focus-within 生效更稳定 -->

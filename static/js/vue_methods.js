@@ -703,6 +703,45 @@ let vue_methods = {
       this.pendingResetConvId = null;
       showNotification(this.t('mainSessionReset'), 'success');
     },
+    // ── 归档会话：拉回主会话 / 返回主会话 ────────────────────────────
+
+    /**
+     * 将归档会话中的一条消息以引用形式追加到主会话上下文，
+     * 然后切换到主会话并预填输入框。
+     */
+    pullToMainSession(message) {
+      const content = message.pure_content || message.content || '';
+      if (!content) return;
+
+      const archiveTitle = this.currentConversationTitle || this.t('archiveGroup');
+
+      // 切换到主会话
+      this.returnToMainSession();
+
+      // 预填输入框（引用格式，让用户看到内容后再发送）
+      const roleLabel = message.role === 'assistant' ? 'AI' : this.t('user') || '用户';
+      this.userInput = `[${this.t('pullFromArchive') || '引自归档'}「${archiveTitle}」- ${roleLabel}]\n${content}\n\n`;
+
+      showNotification(this.t('pulledToMainSession') || '已拉回到主会话输入框', 'success');
+    },
+
+    /**
+     * 切换到主会话（kind=main 的对话），若不存在则切换到默认分组。
+     */
+    returnToMainSession() {
+      const mainConv = this.mainConversation;
+      if (mainConv) {
+        this.loadConversation(mainConv.id);
+      } else {
+        // 没有主会话，切换到默认分组的第一个对话
+        const defaultGroup = this.groupedFilteredConversations?.find(g => g.id === 'default');
+        const firstConv = defaultGroup?.conversations?.[0];
+        if (firstConv) {
+          this.loadConversation(firstConv.id);
+        }
+      }
+    },
+
     // ────────────────────────────────────────────────────────────────
 
     async deleteConversationById(conversationId, options = {}) {

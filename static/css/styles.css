@@ -8690,6 +8690,29 @@ hr.footnotes-sep {
   padding: 0 8px 8px 8px;
 }
 
+/* 归档会话 — 顶部只读 banner */
+.archive-readonly-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: var(--el-color-warning-light-9, #fdf6ec);
+  border-bottom: 1px solid var(--el-color-warning-light-5, #f5dab1);
+  color: var(--el-color-warning-dark-2, #b88230);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+/* 归档会话 — 替代输入框的占位提示 */
+.archive-input-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+
 /* 3. unified-input-wrapper 增强成卡片感 */
 .unified-input-wrapper {
   background-color: var(--el-bg-color) !important;
