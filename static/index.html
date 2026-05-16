@@ -1043,8 +1043,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         
                         <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; justify-content: center; padding-right: 35px;">
                           <span class="item-title" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                            {{ conv.title || t('untitled') }}
-                            <span v-if="conv.kind === 'main'" style="font-size: 10px; color: var(--el-color-primary); margin-left: 4px;">{{ t('mainSession') }}</span>
+                            {{ conv.kind === 'main' && !conv.title ? t('mainSession') : (conv.title || t('untitled')) }}
                           </span>
                           <span style="font-size: 10px; opacity: 0.6; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                             {{ formatConversationTime ? formatConversationTime(conv.timestamp) : '' }} 

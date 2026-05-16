@@ -589,11 +589,10 @@ let vue_methods = {
         memoryConfig: {}
       };
 
-      // 归档分组：固定系统分组，始终存在
-      const rawArchive = rawGroups.find(g => g.id === 'archive');
+      // 归档分组：固定系统分组，始终存在；name 始终用 i18n
       const archiveGroup = {
         id: 'archive',
-        name: rawArchive?.name || this.t('archiveConversationGroup'),
+        name: this.t('archiveConversationGroup'),
         createdAt: 0,
         memoryConfig: {}
       };
@@ -613,6 +612,29 @@ let vue_methods = {
             conv.groupId = 'default';
           }
         });
+
+        // 主会话单例：default 分组内必须恰好有一个 kind=main 的对话
+        const mainConvs = this.conversations.filter(
+          c => c.kind === 'main' && (c.groupId || 'default') === 'default'
+        );
+        if (mainConvs.length === 0) {
+          const mainConv = {
+            id: uuid.v4(),
+            title: '',
+            mainAgent: this.mainAgent,
+            groupId: 'default',
+            timestamp: Date.now(),
+            messages: [],
+            fileLinks: [],
+            system_prompt: this.system_prompt || '',
+            kind: 'main',
+            cc_path: null,
+            archived_at: null,
+            summary_path: null,
+          };
+          this.conversations.unshift(mainConv);
+          console.log('[lover] 已自动创建主会话单例:', mainConv.id);
+        }
       }
       const nextCollapsedState = { ...(this.collapsedConversationGroups || {}) };
       this.conversationGroups.forEach(group => {

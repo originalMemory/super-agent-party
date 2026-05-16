@@ -26,7 +26,7 @@
 > 5.3-5.5 的前端 UI 已就绪，但 `kind`、`workspace_path`、归档落盘等实际逻辑需要本节后端支持才能端到端验证。
 
 - [x] 4.1 会话表新增字段：`kind: 'main' | 'dev' | 'archive'`、`cc_path`（即 workspace_path，沿用前端已有命名）、`archived_at`、`summary_path`（沿用既有 schema）
-- [ ] 4.2 启动时确保两个固定分组存在；`kind=main` 在主分组内单例
+- [x] 4.2 启动时确保两个固定分组存在；`kind=main` 在主分组内单例
 - [ ] 4.3 后端 API：主会话重置 / 归档；开发会话创建（可选 workspace_path）/ 重置 / 归档（触发摘要回流）；归档会话「拉回主会话」
 - [ ] 4.4 `dev` bootstrap 装配：强制 lover/AGENTS.md + 人设三件套 + 绑定工作区的 `.agent/` 概要；`workspace_path` 失效时优雅降级
 - [ ] 4.5 写入隔离：`dev` 会话拒绝写 USER / IDENTITY / SOUL / lover/AGENTS.md / lover/MEMORY.md / lover/memory/

@@ -724,6 +724,53 @@ async def lifespan(app: FastAPI):
         logger.addHandler(handler)
     logger.info("===== 日志系统初始化成功 =====")
 
+    # --- [Lover 会话初始化：确保固定分组 + 主会话单例] ---
+    try:
+        covs = await load_covs()
+        conversations = covs.get("conversations") or []
+        groups = covs.get("conversationGroups") or []
+
+        group_ids = {g.get("id") for g in groups if g}
+        changed = False
+        if "default" not in group_ids:
+            groups.insert(0, {"id": "default", "name": "default", "createdAt": 0, "memoryConfig": {}})
+            changed = True
+        if "archive" not in group_ids:
+            groups.append({"id": "archive", "name": "archive", "createdAt": 0, "memoryConfig": {}})
+            changed = True
+
+        has_main = any(
+            c.get("kind") == "main" and (c.get("groupId") or "default") == "default"
+            for c in conversations
+        )
+        if not has_main:
+            import shortuuid as _su
+            main_conv = {
+                "id": _su.ShortUUID().random(length=12),
+                "title": "",
+                "mainAgent": settings.get("mainAgent", ""),
+                "groupId": "default",
+                "timestamp": int(time.time() * 1000),
+                "messages": [],
+                "fileLinks": [],
+                "system_prompt": settings.get("system_prompt", ""),
+                "kind": "main",
+                "cc_path": None,
+                "archived_at": None,
+                "summary_path": None,
+            }
+            conversations.insert(0, main_conv)
+            changed = True
+            logger.info("🏠 已创建主会话单例: %s", main_conv["id"])
+
+        if changed:
+            covs["conversations"] = conversations
+            covs["conversationGroups"] = groups
+            await save_covs(covs)
+            logger.info("✅ Lover 会话初始化完成")
+    except Exception as e:
+        logger.warning("⚠️ Lover 会话初始化失败（不影响启动）: %s", e)
+
     # --- [工作区记忆 FTS：后台首次同步 + 按 loverSettings 间隔 sync（不阻塞 lifespan /health）] ---
     try:
         from py.lover_memory_fts import (
