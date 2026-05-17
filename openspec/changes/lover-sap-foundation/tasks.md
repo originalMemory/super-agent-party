@@ -1,9 +1,9 @@
 ## 1. 数据模型扩展
 
-- [ ] 1.1 `config/settings_template.json`：`memories[]` 项新增 `soul`（默认 `""`）、`memoryNotes`（默认 `""`）；`memorySettings` 新增 `userProfile`（默认 `""`）、`memoryDirPath`（默认 `""`）、`memoryIndexSyncMinutes`（默认 `10`）
-- [ ] 1.2 `static/js/vue_data.js`：`memories[]` 初始结构新增 `soul`、`memoryNotes`；`memorySettings` 新增 `userProfile`、`memoryDirPath`、`memoryIndexSyncMinutes`
-- [ ] 1.3 `static/js/vue_methods.js`：`addMemory` 时初始化 `soul: ""`、`memoryNotes: ""`
-- [ ] 1.4 `py/get_setting.py`：`load_settings` 加载后对旧数据补全新字段默认值（向后兼容）
+- [x] 1.1 `config/settings_template.json`：`memories[]` 项新增 `soul`（默认 `""`）、`memoryNotes`（默认 `""`）；`memorySettings` 新增 `userProfile`（默认 `""`）、`memoryDirPath`（默认 `""`）、`memoryIndexSyncMinutes`（默认 `10`）
+- [x] 1.2 `static/js/vue_data.js`：`memories[]` 初始结构新增 `soul`、`memoryNotes`；`memorySettings` 新增 `userProfile`、`memoryDirPath`、`memoryIndexSyncMinutes`
+- [x] 1.3 `static/js/vue_methods.js`：`addMemory` / `resetNewMemory` / `copyExistingMemoryData` 初始化 `soul`、`memoryNotes`
+- [x] 1.4 `py/get_setting.py`：`load_settings` 加载后对旧 `memories[]` 补全 `soul`、`memoryNotes` 默认值（向后兼容）
 
 ## 2. System Prompt 注入链扩展
 

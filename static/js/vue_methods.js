@@ -6012,7 +6012,9 @@ let vue_methods = {
         systemPrompt: this.newMemory.systemPrompt,
         firstMes: this.newMemory.firstMes,
         alternateGreetings: this.newMemory.alternateGreetings.filter(Boolean),
-        characterBook: this.newMemory.characterBook.filter(e => e.keysRaw.trim() || e.content.trim())
+        characterBook: this.newMemory.characterBook.filter(e => e.keysRaw.trim() || e.content.trim()),
+        soul: this.newMemory.soul || '',
+        memoryNotes: this.newMemory.memoryNotes || '',
       });
 
       let memory;
@@ -7143,7 +7145,9 @@ handleCreateSlackSeparator(val) {
         systemPrompt: '',
         firstMes: '',
         alternateGreetings: [],
-        characterBook: [{ keysRaw: '', content: '' }]
+        characterBook: [{ keysRaw: '', content: '' }],
+        soul: '',
+        memoryNotes: '',
       };
     },
     copyExistingMemoryData(selectedId) {
@@ -7177,7 +7181,9 @@ handleCreateSlackSeparator(val) {
               : (src.lorebook || []).map(l => ({
                   keysRaw: l.name,
                   content: l.value
-                }))  
+                })),
+          soul: src.soul || '',
+          memoryNotes: src.memoryNotes || '',
         };
            if (this.newMemory.characterBook.length == 0 ){
               this.newMemory.characterBook = [{ keysRaw: '', content: '' }]
