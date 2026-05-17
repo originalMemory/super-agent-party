@@ -7333,7 +7333,20 @@ async def lover_archive_dev_session(req: LoverArchiveDevRequest):
         except Exception as e:
             logger.warning("[lover/archive] 摘要落盘失败: %s", e)
 
-    conv["messages"] = []
+    # 追加摘要消息作为最后一条 assistant 消息（保留原有消息历史）
+    if summary:
+        summary_msg = {
+            "id": shortuuid.ShortUUID().random(length=12),
+            "role": "assistant",
+            "content": f"## 📋 开发会话摘要\n\n{summary}",
+            "pure_content": f"## 📋 开发会话摘要\n\n{summary}",
+            "timestamp": int(time.time() * 1000),
+            "is_archive_summary": True,
+        }
+        messages = conv.get("messages") or []
+        messages.append(summary_msg)
+        conv["messages"] = messages
+
     conv["original_kind"] = "dev"
     conv["kind"] = "archive"
     conv["groupId"] = "archive"

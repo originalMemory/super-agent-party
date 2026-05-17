@@ -897,10 +897,9 @@ let vue_methods = {
       this.archiveDevForm.generating = true;
 
       try {
-        // 取最近 20 条非 system 消息作为上下文
+        // 取全部非 system 消息作为上下文
         const recentMessages = conv.messages
           .filter(m => m.role !== 'system')
-          .slice(-20)
           .map(m => ({
             role: m.role,
             content: m.pure_content || m.content || '',
@@ -966,9 +965,18 @@ let vue_methods = {
         // 前端同步状态
         const conv = this.conversations.find(c => c.id === convId);
         if (conv) {
-          conv.messages = [];
+          // 追加摘要消息（保留原有消息历史）
+          conv.messages = conv.messages || [];
+          conv.messages.push({
+            id: Date.now() + Math.random(),
+            role: 'assistant',
+            content: `## 📋 开发会话摘要\n\n${summary.trim()}`,
+            pure_content: `## 📋 开发会话摘要\n\n${summary.trim()}`,
+            is_archive_summary: true,
+          });
           conv.groupId = 'archive';
           conv.kind = 'archive';
+          conv.original_kind = 'dev';
           conv.archived_at = Date.now();
           conv.summary_path = result?.summary_path || filePath.trim();
         }
@@ -3024,9 +3032,10 @@ let vue_methods = {
 
                             // 审批逻辑
                             if (isApproval && approvalData) {
-                                const b = getBlock('approval', toolCallId, toolName);
-                                b.data = approvalData;
+                                // 先写 map，确保后续点击按钮时数据可用
                                 this.approvalMap[toolCallId] = approvalData;
+                                const b = getBlock('approval', toolCallId, toolName);
+                                try { b.data = approvalData; } catch (_) {}
 
                                 // 不再生成 HTML，直接更新 backend_content
                                 currentMsg.backend_content.push({ role: 'tool', tool_call_id: toolCallId, name: toolName, content: "{}" });
@@ -3262,6 +3271,10 @@ let vue_methods = {
         if (!currentMsg) return;
         
         const data = this.approvalMap[toolCallId];
+        if (!data) {
+            console.warn('[approval] approvalMap missing for', toolCallId);
+            return;
+        }
         const toolName = data?.tool_name || 'Tool';
         const blockId = `approval-${toolCallId}`;
 
