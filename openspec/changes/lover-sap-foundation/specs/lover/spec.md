@@ -1,76 +1,231 @@
 ## ADDED Requirements
 
-### Requirement: 单一产品线（无模式开关）
+### Requirement: 角色卡扩展字段（soul / memoryNotes / userProfile）
 
 The implementation MUST conform to all normative statements ("必须" / "不得") in this requirement.
 
-产品必须为 **lover 单一形态**：**不得**实现 `loverMode` 或等价开关以保留 SAP 酒馆完整 UI；**不得**将酒馆角色卡、换卡作为主路径。
+角色卡 `memories[]` **必须**新增 `soul`（元层原则）和 `memoryNotes`（记忆笔记）字段。`memorySettings` **必须**新增 `userProfile`（用户档案）字段。
 
-#### Scenario: 无换卡
+所有新字段**必须**默认为空字符串。空字符串时**不得**注入 system prompt，以保证老角色卡**向后兼容**。
 
-- **当** 用户使用主界面发起对话
-- **则** 不得提供「更换角色卡」类交互。
+- **`soul`**：角色卡级；定义元层运行原则（价值观、语调、主动性边界）。
+- **`memoryNotes`**：角色卡级；手写长期记忆，与 mem0 自动记忆互补。
+- **`userProfile`**：`memorySettings` 级；所有角色**共享**的用户档案。
+
+#### Scenario: 向后兼容
+
+- **当** 用户加载一张不含 `soul`、`memoryNotes` 字段的旧角色卡
+- **则** 系统**必须**自动补全默认空值，注入行为与现有版本一致。
+
+#### Scenario: userProfile 跨角色共享
+
+- **当** 用户在 `memorySettings` 中配置了 `userProfile`
+- **则** 无论切换到哪张角色卡，`userProfile` 均**必须**保持不变并参与注入。
 
 ---
 
-### Requirement: Markdown SSOT 与 USER / IDENTITY / SOUL
+### Requirement: System Prompt 注入顺序
 
 The implementation MUST conform to all normative statements ("必须" / "不得") in this requirement.
 
-产品必须以约定根目录（默认 **`.agent/`**）下 Markdown 为真相源。
+在现有角色卡注入链的基础上扩展。注入顺序**必须**为：
 
-- **`USER.md`**：人类用户档案；**必须**作为 bootstrap 的一部分；**不得**默认并入 FTS。
-- **`IDENTITY.md`**、**`SOUL.md`**：**必须**各为 **独立文件**；**不得**合并为单一 Markdown、**不得**省略其一；**不得**重复注入两份等价正文。
-- **`AGENTS.md`**：可选；若存在则纳入 bootstrap（倾向先于 USER/人设）。
-- **`MEMORY.md`**：长期记忆事实；**必须**纳入 FTS；是否在 bootstrap 中额外常驻摘要以实现为准，须文档化且与 FTS 白名单一致。
+1. `userProfile`（非空时）
+2. `soul`（非空时）
+3. 默认用户名说明（已有）
+4. `characterBook` 世界观设定（已有，关键词命中时）
+5. `description` 角色设定（已有）
+6. `personality` 性格设定（已有）
+7. `mesExample` 对话示例（已有）
+8. `systemPrompt` 角色系统提示（已有）
+9. `genericSystemPrompt` 通用系统提示（已有）
+10. `memoryNotes`（非空时，常驻全文注入）
+11. FTS recall（日记树检索命中片段）
+12. mem0 recall（已有，**默认关闭**，用户手动配置 providerId 时生效）
 
-**按日日记**路径（相对 CLI `cwd`）：**`memory/YYYY/MM/YYYY-MM-DD.md`**。该路径 **不得**设计为对用户隐藏；须支持用户直接查看与编辑。日记文件 **必须**纳入 FTS 记忆语料。
+**不得**删除或替代现有注入链中的任何步骤。新增字段**必须**使用 Markdown 标题隔离（如 `## 用户档案`）。
 
-**不得**实现酒馆式「设定书」的 **关键词触发按需注入**；此类内容须 **并入初始角色信息**，随 bootstrap 一并提供。
+`{{user}}` / `{{char}}` 占位符替换**必须**适用于三个新字段。
 
-#### Scenario: 会话锚点注入
+#### Scenario: 注入不膨胀
 
-- **当** 主会话请求模型回复
-- **则** 系统必须按设计文档顺序组装 **完整初始角色信息**（USER + IDENTITY + SOUL + 可选 AGENTS + 可选 MEMORY 摘要），且 **会话级不随每条用户消息倍增**。
-
----
-
-### Requirement: OpenClaw 式人设注入（非 FTS、无设定书流水线）
-
-The implementation MUST conform to all normative statements ("必须" / "不得") in this requirement.
-
-系统 **不得**在 **每一次** 用户请求路径中 **无条件重复追加** 完整酒馆式「角色描述、性格、示例对话、系统提示词」块。
-
-系统必须将会话级人设 **固定为 bootstrap**（一条逻辑 system 组合）；**不得**用人设语料参与 **每轮记忆 FTS**。
-
-**记忆 FTS** 命中块 **单独** 以「相关回忆」等形式附加，**不得替代** bootstrap。
-
-#### Scenario: 连续多轮用户消息
-
-- **当** 同一主会话内用户连续发送多条消息
-- **则** 服务端不得对每一条消息都重新追加一整份与上一轮相同的完整人设正文（bootstrap 锚点更新除外）。
+- **当** 同一会话内用户连续发送多条消息
+- **则** 新增字段的注入**不得**随轮次重复膨胀（与现有字段行为一致）。
 
 #### Scenario: 裁剪保护
 
 - **当** 实现对话历史压缩或截断
-- **则** 人设 bootstrap 不得被静默丢弃，除非用户触发「重置会话」等定义操作。
+- **则** `userProfile`、`soul` 与现有 bootstrap 字段**不得**被静默丢弃。
 
 ---
 
-### Requirement: 记忆检索专用 FTS（无 mem0）
+### Requirement: 日记树 FTS 记忆检索
 
 The implementation MUST conform to all normative statements ("必须" / "不得") in this requirement.
 
-系统必须在 **每次用户发送消息、调用模型之前**，对 **记忆语料集合** 执行 **SQLite FTS5**：至少包含 **`USER_DATA_DIR/lover/MEMORY.md`** 与 **`USER_DATA_DIR/lover/memory/`** 下 **递归**的 **`.md`** 文件（推荐 **`lover/memory/YYYY/MM/<日记>.md`**，实现 **不**强制校验日期）。记忆根目录为 **`USER_DATA_DIR/lover`**（**与 `CLISettings.cc_path` 无关**）。查询文本 **倾向** 为当前用户消息（可从多模态消息中提取纯文本）。索引库 **`{USER_DATA_DIR}/lover/memory_index.sqlite`**，**不得**当作唯一 SSOT。索引刷新 **不得**绑定在每次查询路径上；同步间隔 **`loverSettings.memoryIndexSyncIntervalMinutes`**（默认 10 分钟）；**进程启动**与**后台周期**调用 **`sync_memory_index`**（见 `server.py` lifespan）。实现 **应尝试** 自动获取并加载 **wangfenjin/simple**（`tokenize='simple'` / `simple_query()`，缓存路径见实现）；失败则使用内置分词降级；换分词器须重建索引文件。
+系统**必须**在**每次用户发送消息、调用模型之前**，对日记树执行 **SQLite FTS5** 检索。
 
-系统 **不得**将 **`USER.md` / `IDENTITY.md` / `SOUL.md` / `AGENTS.md`** 纳入该 FTS 默认索引范围。
+**索引范围**：`{USER_DATA_DIR}/lover/memory/` 下**递归**的 `.md` 文件（推荐 `lover/memory/YYYY/MM/<日记>.md`，**不**强制校验日期格式）。
 
-系统 **不得**依赖 **mem0** 或同类向量记忆栈完成本轮注入；长期记忆 **读路径** 以 FTS 命中片段为准。
+**不得索引**的内容：角色卡字段（`soul`、`memoryNotes`）、`memorySettings` 字段（`userProfile`）——这些已全文常驻注入 bootstrap，索引会造成重复命中。
+
+**索引库**：`{USER_DATA_DIR}/lover/memory_index.sqlite`。**索引同步**：进程启动时 `sync_memory_index` 一次 + 后台按 `loverSettings.memoryIndexSyncIntervalMinutes`（默认 10 分钟）周期同步。同步**不得**绑定在每次查询路径上。
+
+**分词器**：**应尝试**自动获取并加载 wangfenjin/simple；失败则降级到 trigram → unicode61；更换分词器**须**重建索引文件。
+
+**查询文本**：倾向为当前用户消息纯文本。命中片段以 `## 相关回忆` 标题注入 system prompt dynamic 块。
 
 #### Scenario: FTS 分词降级
 
-- **当** 目标 SQLite 不支持首选 FTS5 分词器（如 trigram）
-- **则** 必须降级到其它内置 tokenize 或默认 FTS5，且不得崩溃。
+- **当** 目标 SQLite 不支持首选 FTS5 分词器
+- **则** **必须**降级到其它内置 tokenize，**不得**崩溃。
+
+#### Scenario: 专有名词精确命中
+
+- **当** 用户消息包含日记中出现过的专有名词（人名、游戏名、项目名）
+- **则** FTS **必须**能精确匹配命中，不依赖向量近似。
+
+#### Scenario: 摘要回流后可检索
+
+- **当** 开发会话摘要回流落盘至 `lover/memory/` 下
+- **则** 下一轮 `sync_memory_index` 后，主会话 FTS **必须**能检索到该摘要内容。
+
+---
+
+### Requirement: mem0 可选默认关闭
+
+The implementation MUST conform to all normative statements ("必须" / "不得") in this requirement.
+
+系统**必须**保留 mem0 代码通路与 UI 配置，但**必须**默认不启用。仅当用户在角色卡 embedding 设置中手动配置了 `providerId`、`model`、`api_key`、`base_url` 时方可生效。
+
+**不得**在未配置 mem0 的情况下执行向量检索或自动提炼写入。
+
+#### Scenario: 默认关闭
+
+- **当** 用户未配置角色卡的 embedding `providerId`
+- **则** 系统**不得**执行 mem0 相关的 `m0.search` 或 `m0.add` 操作。
+
+#### Scenario: 手动开启
+
+- **当** 用户手动配置了 embedding 相关字段
+- **则** mem0 按现有逻辑工作（每轮检索 + 请求结束后自动提炼），与 FTS 并存。
+
+---
+
+### Requirement: AI 工具——角色卡查看与修改
+
+The implementation MUST conform to all normative statements ("必须" / "不得") in this requirement.
+
+系统**必须**向 AI 提供以下工具，注册到 `dispatch_tool` 工具映射表：
+
+1. **`get_character_card`**：读取当前选中角色卡的完整信息或指定字段，同时返回 `memorySettings.userProfile`。
+2. **`update_character_card`**：修改当前选中角色卡的指定字段。**可写字段白名单**：`soul`、`memoryNotes`、`description`、`personality`、`systemPrompt`、`mesExample`。**不得**允许修改 `name`、`avatar`、`providerId` 等结构性字段。
+3. **`update_user_profile`**：修改全局用户档案（`memorySettings.userProfile`）。
+
+三个工具**必须**归入 `SENSITIVE_TOOLS`，执行前**须**用户审批。修改后**必须**调用 `save_settings()` 持久化，并通知前端刷新。
+
+#### Scenario: AI 读取角色卡
+
+- **当** AI 调用 `get_character_card` 且不传 `fields` 参数
+- **则** 返回当前角色卡的全部字段内容以及全局 `userProfile`。
+
+#### Scenario: AI 修改 memoryNotes
+
+- **当** AI 调用 `update_character_card` 修改 `memoryNotes` 字段
+- **则** 修改**必须**经用户审批后生效并持久化。
+
+#### Scenario: AI 修改结构性字段被拒绝
+
+- **当** AI 调用 `update_character_card` 尝试修改 `name` 字段
+- **则** 系统**必须**拒绝并返回错误提示。
+
+---
+
+### Requirement: 日记树路径可配置
+
+The implementation MUST conform to all normative statements ("必须" / "不得") in this requirement.
+
+日记树根目录**必须**可配置，配置项为 `memorySettings.memoryDirPath`。默认为空字符串，空值时使用 `{USER_DATA_DIR}/lover/memory/`。
+
+FTS 索引库路径**必须**跟随日记树目录自动派生。FTS 同步间隔**必须**可配置（`memorySettings.memoryIndexSyncMinutes`，默认 10 分钟）。
+
+配置变更后**必须**重建 FTS 索引。
+
+#### Scenario: 自定义路径
+
+- **当** 用户将 `memoryDirPath` 设置为自定义路径
+- **则** FTS 索引**必须**切换到该目录下递归 `.md`，摘要回流**必须**落盘到该目录下。
+
+#### Scenario: 默认路径
+
+- **当** `memoryDirPath` 为空字符串
+- **则** 系统**必须**使用 `{USER_DATA_DIR}/lover/memory/` 作为日记树根目录。
+
+---
+
+### Requirement: AGENTS.md 处理（方案 A）
+
+The implementation MUST conform to all normative statements ("必须" / "不得") in this requirement.
+
+操作约束层**不得**引入角色卡级字段。**必须**复用以下已有通路：
+
+1. **全局 `system_prompt`**：settings 中配置的全局系统提示，对所有角色卡生效
+2. **工作区 `.agent/AGENTS.md`**：会话绑定工作区（`cc_path`）时，由 `tools_change_messages` 现有逻辑注入
+
+#### Scenario: 全局约束
+
+- **当** 用户在 settings 中配置了 `system_prompt`
+- **则** 该提示**必须**位于 `messages[0]` 最前部，对所有角色卡和会话类型生效。
+
+#### Scenario: 工作区约束
+
+- **当** 会话绑定了有效的 `cc_path` 且该路径下存在 `.agent/AGENTS.md`
+- **则** 系统**必须**按现有逻辑注入工作区约束。
+
+---
+
+### Requirement: 前端角色卡编辑扩展
+
+The implementation MUST conform to all normative statements ("必须" / "不得") in this requirement.
+
+角色卡编辑界面**必须**新增以下编辑区域：
+
+1. **SOUL / 元层原则**：Markdown 文本编辑区，对应 `memories[i].soul`
+2. **记忆笔记**：Markdown 文本编辑区，对应 `memories[i].memoryNotes`
+
+`memorySettings` 编辑区域**必须**新增：
+
+3. **用户档案**：Markdown 文本编辑区，对应 `memorySettings.userProfile`，并标注"所有角色共享"
+
+现有角色卡列表、换卡、TTS 多角色语音、VRM 多角色外观等 UI **不得**删除。
+
+#### Scenario: 新建角色卡
+
+- **当** 用户新建一张角色卡
+- **则** `soul` 和 `memoryNotes` 字段**必须**初始化为空字符串。
+
+---
+
+### Requirement: 保留角色卡体系
+
+The implementation MUST conform to all normative statements ("必须" / "不得") in this requirement.
+
+系统**必须**保留完整的 `memories[]` + `memorySettings` 角色卡体系，包括：
+
+- 角色卡 CRUD（创建、切换、删除）
+- TTS 多角色语音同名联动
+- VRM 多角色外观同名联动
+- mem0 向量长期记忆（可选）
+- `characterBook` 世界观设定（关键词触发注入）
+- 开场白（`firstMes` / `alternateGreetings`）
+- 角色卡导入/导出
+
+**不得**以引入 OpenClaw 能力为由删除上述任何功能。
+
+#### Scenario: 多角色切换
+
+- **当** 用户切换角色卡
+- **则** `soul`、`memoryNotes` 随角色卡切换，`userProfile` 保持不变。
 
 ---
 
@@ -78,72 +233,28 @@ The implementation MUST conform to all normative statements ("必须" / "不得"
 
 The implementation MUST conform to all normative statements ("必须" / "不得") in this requirement.
 
-产品必须支持 **主会话**、**归档**、**主动归档**、**重置会话**（重置语义须文档化）。
+产品**必须**复用既有「分组 + 会话」底座，**收敛为两组固定结构**：**主分组**与**归档分组**。这两个分组**不得**由用户新建、删除或重命名。
 
-产品必须复用既有「分组 + 会话」底座，**收敛为两组固定结构**：**主分组**与**归档分组**。这两个分组**不得**由用户新建、删除或重命名。会话**必须**带有种类字段 `kind ∈ { main, dev, archive }`：
+会话**必须**带有种类字段 `kind ∈ { main, dev, archive }`：
 
-- **`main`**：主会话；**主分组**内**至多一条**；**不得**被删除；可"重置"或"主动归档"。
-- **`dev`**：开发会话；**仅**存在于**主分组**内；**可多开**；可选绑定一个 `cc_path` 工作区。
-- **`archive`**：归档主会话快照；**仅**存在于**归档分组**内；**只读**，**不得**被续聊。
-
-**开发会话不得进入归档分组**：其归档形式由「摘要回流」承担（见对应 Requirement），原对话历史**不**被持久保留。
+- **`main`**：主会话；主分组内**至多一条**；**不得**被删除；可"重置"或"主动归档"。
+- **`dev`**：开发会话；**仅**存在于主分组内；可多开；可选绑定 `workspace_path`。
+- **`archive`**：归档主会话快照；**仅**存在于归档分组内；**只读**。
 
 #### Scenario: 主动归档（主会话）
 
 - **当** 用户对主会话执行"主动归档"
-- **则** 当前主会话快照进入归档分组，主分组中保留主会话槽位以承接新一轮对话。
+- **则** 当前主会话快照进入归档分组，主分组中保留主会话槽位。
 
 #### Scenario: 重置（主会话）
 
 - **当** 用户重置主会话
-- **则** 消息上下文按定义清空或换新线程；**不得**静默清空全部长期记忆存储除非明示。
+- **则** 消息上下文按定义清空；**不得**静默清空全部长期记忆。
 
-#### Scenario: 主分组单例约束
+#### Scenario: 归档只读
 
-- **当** 主分组内已存在 `kind=main` 的会话
-- **则** 系统**不得**允许在主分组内再创建第二条 `kind=main` 会话。
-
-#### Scenario: 分组不可变
-
-- **当** 用户尝试新建/删除/重命名分组
-- **则** 系统**不得**允许；前端**不得**提供相应入口。
-
-#### Scenario: 归档主会话只读
-
-- **当** 用户打开归档分组中的某条 `archive` 会话
-- **则** 仅可浏览历史与触发"拉回主会话"（将所选历史段落以引用追加到当前主会话），**不得**在归档会话内继续发送新消息。
-
----
-
-### Requirement: 开发会话 Bootstrap
-
-The implementation MUST conform to all normative statements ("必须" / "不得") in this requirement.
-
-`dev` 会话**必须**与 `main` 会话**共享同一份人设 SSOT**：bootstrap **必须**按 `AGENTS`（**强制**） → `USER` → `IDENTITY` → `SOUL` 顺序装配；`USER.md` / `IDENTITY.md` / `SOUL.md` 仍为**独立文件**且**不得**合并。
-
-`dev` 会话**应**继续受益于"每轮记忆 FTS 召回"，以保持人格连续与对最近日记的感知；FTS 范围与 `main` 会话保持一致（`lover/MEMORY.md` + `lover/memory/**/*.md`）。
-
-`dev` 会话**应**根据 `workspace_path` 决定是否追加注入工作区上下文：
-
-- **当** `workspace_path` 非空且对应 `cc_path` 工作区可用 → **必须**追加注入该工作区 `.agent/` 概要与项目 skills 索引。
-- **当** `workspace_path` 为空或绑定的工作区已失效 → **必须**优雅降级为"未绑定工作区"模式（仅人设三件套 + 强制 `AGENTS`），**不得**因此阻塞会话创建或对话。
-
-`dev` 会话**不得**直接写入 `USER.md` / `IDENTITY.md` / `SOUL.md` / `AGENTS.md` / `lover/MEMORY.md`，**也不得**直接在 `lover/memory/` 下创建/编辑任意 `.md`；对日记树的写入**仅可**通过"摘要回流"间接发生。
-
-#### Scenario: 强制 AGENTS
-
-- **当** `dev` 会话装配 bootstrap 而仓库 / `USER_DATA_DIR/lover/` 中存在可用的 `AGENTS.md`
-- **则** 必须将 `AGENTS.md` 注入到 bootstrap 中（顺序在 `USER` 之前）。
-
-#### Scenario: 工作区降级
-
-- **当** `dev` 会话的 `workspace_path` 指向已失效路径（被改名/删除）
-- **则** 系统不得阻塞或报错中断会话；必须按未绑定工作区装配并对用户给出可见提示。
-
-#### Scenario: 写入隔离
-
-- **当** `dev` 会话的工具调用尝试写入人设三件套 / `MEMORY.md` / `lover/memory/` 下任意 `.md`
-- **则** 系统必须拒绝写入；如确需更新长期事实，引导用户回到主会话或手动编辑 Markdown。
+- **当** 用户打开归档会话
+- **则** 仅可浏览和「拉回主会话」，**不得**继续发送新消息。
 
 ---
 
@@ -151,40 +262,22 @@ The implementation MUST conform to all normative statements ("必须" / "不得"
 
 The implementation MUST conform to all normative statements ("必须" / "不得") in this requirement.
 
-`dev` 会话**主动归档时**，系统**必须**触发"摘要回流"：由 Agent 基于本会话上下文起草一段日志摘要，并以日记 `.md` 的形式落入 `lover/memory/YYYY/MM/<YYYY-MM-DD>-work-<slug>.md`。
+`dev` 会话主动归档时，系统**必须**触发"摘要回流"：Agent 基于本会话上下文起草日志摘要，以 `.md` 形式落入 `lover/memory/YYYY/MM/<YYYY-MM-DD>-work-<slug>.md`。
 
-落盘路径**必须**位于 `lover/memory/` 子树下，使其可被既有 FTS 白名单（递归 `.md`）自然覆盖；**不得**写入 `lover/MEMORY.md`。
+默认行为**必须**为"先弹窗给用户编辑/确认，再落盘"。`loverSettings.devArchiveQuickSave`（默认 `false`）开关开启时可跳过弹窗。
 
-默认行为**必须**为"先弹窗给用户编辑/确认，再落盘"。系统**应**提供 `loverSettings.devArchiveQuickSave`（默认 `false`）开关；当且仅当开启时，方可跳过弹窗直接落盘。
+落盘成功后**必须**：删除 `dev` 会话对话历史 + 写入 `summary_path`。
 
-落盘成功后，系统**必须**：
-1. 删除该 `dev` 会话的对话历史（**不**保留原文）。
-2. 将摘要文件相对路径写入会话表的 `summary_path` 字段以备追溯。
-3. 触发或等待下一轮 `sync_memory_index` 将该日记纳入 FTS 索引。
+Agent 起草失败时**仍必须**允许归档，以仅含元信息的摘要文件落盘。
 
-若 Agent 起草摘要**失败或拒答**，系统**仍必须**允许归档完成，但摘要文件**仅含元信息**（任务标题、绑定的 `workspace_path`、起止时间），以保留 FTS 痕迹。
+**不得**将摘要写入角色卡的 `memoryNotes`——memoryNotes 由用户精心维护，工作日志走日记树。
 
 #### Scenario: 默认弹窗确认
 
-- **当** 用户对 `dev` 会话执行"主动归档"且 `loverSettings.devArchiveQuickSave` 为 `false`
-- **则** 系统必须弹窗展示 Agent 起草的摘要、目标文件名（预填 `lover/memory/YYYY/MM/<YYYY-MM-DD>-work-<slug>.md`），允许用户编辑后再确认落盘。
-
-#### Scenario: 快速保存
-
-- **当** `loverSettings.devArchiveQuickSave` 为 `true` 且用户对 `dev` 会话执行"主动归档"
-- **则** 系统可不弹窗直接落盘 Agent 起草的摘要，并删除会话历史。
+- **当** 用户对 `dev` 会话执行归档且 `devArchiveQuickSave` 为 `false`
+- **则** 系统**必须**弹窗展示摘要供编辑确认。
 
 #### Scenario: 起草失败降级
 
-- **当** Agent 起草摘要失败或拒答
-- **则** 系统不得阻塞归档；必须以仅含元信息的摘要文件落盘，并删除原对话历史。
-
-#### Scenario: 重置不出摘要
-
-- **当** 用户对 `dev` 会话执行"重置"而非"主动归档"
-- **则** 系统不得生成摘要、不得写入 `lover/memory/`；仅清空当前会话上下文。
-
-#### Scenario: FTS 不索引开发会话原文
-
-- **当** `dev` 会话存在持久化的对话历史
-- **则** 该历史不得被纳入 FTS 索引；FTS 仅可通过"摘要回流"产物间接感知开发活动。
+- **当** Agent 起草失败
+- **则** 系统**不得**阻塞归档；以仅含元信息的摘要文件落盘。

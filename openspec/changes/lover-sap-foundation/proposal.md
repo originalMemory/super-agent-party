@@ -1,62 +1,72 @@
 ## Why
 
-在 **硬分叉** 的 **lover** 产品线上，基于 Super Agent Party 的工程底座，收敛为 **单用户 ↔ 唯一 Agent** 的伴侣型宿主：人设与记忆 Markdown 以 **`USER_DATA_DIR/lover/`** 为 SSOT（**与 `CLISettings.cc_path` 无关**）；工作区 `.agent/` 仍可用于任务、待办、项目 skills 等。**移除酒馆角色卡 / 多卡 / 旧 UI**。  
-人设采用 **OpenClaw 式会话常驻 bootstrap**：**`USER.md`、`IDENTITY.md`、`SOUL.md` 必须为三份独立文件（IDENTITY 与 SOUL 不合并）**，可选 **`AGENTS.md`** 一并注入；原酒馆「设定书」类内容 **并入初始角色信息**，**不设**关键词按需拼装。**每轮 FTS 仅用于记忆语料**：**`lover/MEMORY.md`** 与 **`lover/memory/` 下递归的 `.md`**（推荐 `YYYY/MM` 布局；对用户 **可见、可手改**）。长期记忆 **仅 SQLite FTS5**；**`loverSettings`**（默认同步 **10 分钟**）；**simple** 分词扩展 **自动获取**（见实现）。**已移除 mem0**。
+在 **multiLovers** 分支上，基于 Super Agent Party（SAP）的角色卡体系，引入 **OpenClaw 式人设分层**（SOUL / USER / MEMORY）作为角色卡的扩展字段，实现**伴侣型 Agent** 的人设深度与记忆连续性。
 
-**品牌与仓库命名**：后续对外将由 **super-agent-party** 更名为 **super-agent-lover**。文中「SAP」「上游」仍指原 super-agent-party 主线。
+**核心决策**：**保留角色卡及其与 TTS 音色、VRM 形象的同名联动逻辑**，而非 lover 分支原方案中的"删除酒馆角色卡、用独立 Markdown 文件替代"。理由：
+
+1. 角色卡关联链深：TTS `newtts`、VRM `newVRM`、`memorySettings`、`characterBook`、mem0、开场白、群聊等均依赖 `memories[]`，完全删除代价极高
+2. 多角色切换是 SAP 差异化能力，multiLovers 天然需要"切换伴侣 = 切换人设 + 语音 + 形象"
+3. 原有 `description` / `personality` / `systemPrompt` / `mesExample` 已覆盖 OpenClaw `IDENTITY.md` 的内容域
+
+**品牌**：保持 super-agent-party。**无 loverMode**：伴侣能力是角色卡的功能增强，不是独立模式。
 
 ## What Changes（分阶段）
 
-### 阶段 A — 范围与设计定型
+### 阶段 A — 角色卡数据模型扩展
 
-- 固化 **USER / IDENTITY / SOUL 三分文件（不合并）**、**日记树 `lover/memory/**/*.md`（推荐按年月）**、bootstrap 顺序、**FTS 仅记忆**、**主分组（main 单例 + 多 dev）+ 归档分组（仅 main 快照）** 的两组固定结构。
+- `memories[]` 每项新增 **`soul`**（元层原则）、**`memoryNotes`**（手写长期记忆）字段
+- `memorySettings` 新增 **`userProfile`**（用户档案，所有角色共享）
+- **AGENTS.md 不进角色卡**：复用全局 `system_prompt` + 工作区 `.agent/AGENTS.md`（已有通路，方案 A）
+- **AI 工具**：新增 `get_character_card` / `update_character_card` / `update_user_profile`，让 AI 可以读取和修改角色卡字段（需用户审批）
+- 前端角色卡编辑界面增加对应 tab/表单
+- 调整注入顺序：`userProfile` → `soul` → `description` → `personality` → `mesExample` → `systemPrompt` → `genericSystemPrompt` → `memoryNotes` → `FTS recall` → `mem0 recall`（可选，默认关闭）
 
-### 阶段 B — 记忆后端
+### 阶段 B — 日记树 FTS 记忆检索
 
-- FTS 索引 **`lover/MEMORY.md`** + **`lover/memory/`** 下按日文件；每轮用户消息后、模型调用前注入回忆片段。
-- **无 mem0**：不向向量库自动写入对话摘要。
+- **日记树 FTS**：`{USER_DATA_DIR}/lover/memory/` 下递归的 `.md` 文件纳入 SQLite FTS5 索引，每轮用户消息触发检索，命中片段注入 dynamic 块
+- **memoryNotes 常驻注入**：角色卡级手写记忆全文注入 bootstrap，不进 FTS（内容量可控，参考 OpenClaw MEMORY.md）
+- **mem0 可选默认关闭**：保留代码通路但默认不启用——向量检索对专有名词支持差，且每句存储过于冗余；用户可手动开启作为补充
+- 复用 lover 分支已有实现：`py/lover_memory_fts.py`、`py/lover_fts_simple_auto.py`
 
-### 阶段 C — 前端与会话
+### 阶段 C — 会话模型与摘要回流
 
-#### C1 — 主会话 / 归档 / 重置
+沿用 lover 分支已验证的会话模型设计，与角色卡体系融合：
 
-- 主会话单例、归档分组只读、主动归档、重置；移除酒馆换卡与相关导航；归档主会话提供「拉回主会话」按钮。
+- 主分组（`main` 单例 + 0..N `dev`）+ 归档分组（`archive` 只读）
+- `dev` 会话与 `main` 共享当前选中角色卡的完整 bootstrap
+- 摘要回流：`dev` 归档时由 Agent 起草摘要 → 用户确认 → 写入角色卡的 `memoryNotes` 或独立日记文件
 
-#### C2 — 开发会话与摘要回流
+### 阶段 D — 会话启动序列
 
-- 主分组内可多开 `dev` 会话，可选绑定一个 `cc_path` 工作区；与主会话**共享人设 bootstrap**，额外强制注入 `AGENTS.md` + 工作区 `.agent/` 概要。
-- 自身对话**不入 FTS**；归档时由 Agent 起草摘要 → 默认弹窗确认 → 落 `lover/memory/YYYY/MM/<日期>-work-<slug>.md` → 删除原对话历史。
-- 提供 `loverSettings.devArchiveQuickSave`（默认关）跳过弹窗的快速保存开关。
-- 摘要起草失败时降级为元信息摘要（任务标题、绑定工作区、起止时间），仍保留 FTS 痕迹。
-
-### 阶段 D — SSOT bootstrap
-
-- 按文档顺序加载 `AGENTS`（可选）→ `USER` → `IDENTITY` → `SOUL`；**禁止**每轮重复追加酒馆整块人设；**禁止**单独设定书流水线。
-- **`MEMORY.md`**：可作为常驻摘要纳入 bootstrap **或** 仅靠 FTS 片段注入（二选一须文档化并与 FTS 白名单一致）。
-- `dev` 会话装配相同人设三件套 + 强制 `AGENTS`，绑定工作区时追加 `.agent/` 概要 / 项目 skills 索引；**不得**写入 `MEMORY.md` 或人设三件套。
+- 新建/重置会话时注入启动指令，让模型用 `soul` 定义的 persona 主动问候
+- 可选注入最近的 `memoryNotes` 摘要作为启动记忆前言
 
 ### 阶段 E — backlog
 
-- 桌面主动感知等。
-
-### 阶段 F — 可选升级
-
-- QMD / 向量混合。
+- 桌面主动感知
+- 心跳机制（参照 OpenClaw HEARTBEAT）
 
 ## Capabilities
 
 ### New Capabilities
 
-- `lover`：单一产品：SSOT 三分人设文件、可见日记树、记忆 FTS、主会话+归档、移除酒馆 UI。
+- `soul`：角色卡级元层原则（价值观、语调、主动性、边界），注入优先级最高
+- `userProfile`：用户档案，全局共享，所有角色可感知用户偏好
+- `memoryNotes`：手写可见的长期记忆，常驻注入 bootstrap
+- AI 工具：`get_character_card` / `update_character_card` / `update_user_profile`，让 AI 可读写角色卡
+- 日记树 FTS：用户可配置目录下的 `.md` 文件，SQLite FTS5 每轮检索注入
+- 会话模型：主会话/开发会话/归档的固定分组结构
+- 摘要回流：开发会话归档时产出结构化日志
 
 ### Modified Capabilities
 
-- （无）
+- 角色卡注入顺序调整：新增 `userProfile` → `soul` 在最前
+- `memoryNotes` 作为新的记忆维度加入注入链
+- mem0 默认关闭（保留代码通路，用户可手动开启）
 
 ## Impact
 
-- **后端**：移除酒馆每轮人设注入；SSOT 拼接；FTS 监视 `memory/`；无设定书关键词分支；新增 `dev` 会话 bootstrap 装配（强制 AGENTS + 可选工作区概要）与摘要回流写入路径。
-- **前端**：裁剪酒馆/角色卡界面；分组栏收敛为固定的「主分组 / 归档分组」；主会话单例 + 多个 `dev` 会话；归档主会话只读 + 「拉回主会话」；`dev` 归档弹窗确认摘要。
-- **数据模型**：会话表新增 `kind` / `workspace_path` / `archived_at` / `summary_path`；分组用户不可增删。
-- **设置**：新增 `loverSettings.devArchiveQuickSave`（默认 `false`）。
-- **分叉**：独立 lover；可合并上游 SAP（见 `design.md`）。
+- **后端**：`generate_stream_response` 注入链增加 `userProfile`、`soul`、`memoryNotes`、FTS recall 四个注入点；保留 `cur_memory` 整套注入逻辑（非删除）；新增 `py/character_card_tools.py` AI 工具模块；日记树 FTS 索引与检索模块（复用 lover 分支实现）；会话模型新增 `kind`/`workspace_path`/`archived_at`/`summary_path` 字段
+- **前端**：角色卡编辑界面新增 SOUL / 记忆笔记 tab；memorySettings 编辑区新增用户档案；会话分组 UI 收敛为固定两组
+- **数据模型**：`memories[]` 增加 `soul`、`memoryNotes` 字段；`memorySettings` 增加 `userProfile`、`memoryDirPath`、`memoryIndexSyncMinutes` 字段；会话表增加 `kind` 等字段
+- **兼容性**：新字段均可选（空字符串时跳过注入），对未配置新字段的老角色卡完全兼容
