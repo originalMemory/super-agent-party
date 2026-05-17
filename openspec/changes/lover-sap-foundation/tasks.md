@@ -7,13 +7,11 @@
 
 ## 2. System Prompt 注入链扩展
 
-- [ ] 2.1 `server.py` `generate_stream_response`：在现有 `cur_memory` 注入链（约 3629 行）**前**插入 `userProfile`、`soul` 注入
-- [ ] 2.2 `server.py` `generate_stream_response`：在现有注入链（`genericSystemPrompt` 之后）插入 `memoryNotes` 常驻注入
-- [ ] 2.3 `server.py` `generate_stream_response`：在 `memoryNotes` 之后插入 FTS recall 注入点
-- [ ] 2.4 注入格式：使用 `## 用户档案` / `## 元层原则` / `## 记忆笔记` / `## 相关回忆` Markdown 标题隔离
-- [ ] 2.5 `{{user}}` / `{{char}}` 占位符替换适用于三个新字段
-- [ ] 2.6 空值跳过：新字段为空字符串时不注入（保持向后兼容）
-- [ ] 2.7 mem0 默认关闭：保留代码通路，仅当用户手动配置 `providerId` 时生效
+- [x] 2.1 `server.py` `generate_stream_response`：在现有 `cur_memory` 注入链**前**插入 `userProfile`（`## 用户档案`）、`soul`（`## 元层原则`）注入
+- [x] 2.2 `server.py` `generate_stream_response`：在 `genericSystemPrompt` 之后插入 `memoryNotes`（`## 记忆笔记`）常驻注入
+- [x] 2.3 `server.py` `generate_stream_response`：在 `memoryNotes` 之后预留 FTS recall 注入点（TODO 注释）
+- [x] 2.4 注入格式：使用 Markdown 标题隔离，`{{user}}` / `{{char}}` 占位符替换，空值跳过
+- [x] 2.5 mem0 默认关闭：代码已为"未配置 providerId 则不启用"，无需额外修改
 
 ## 3. AI 工具：角色卡查看与修改
 

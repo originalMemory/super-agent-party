@@ -3627,6 +3627,20 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
             source_prompt += fileLinks_message
         user_prompt = request.messages[-1].get('content') or ""
         if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != ""  and not request.is_sub_agent:
+            _user_name = settings["memorySettings"].get("userName", "")
+            _char_name = cur_memory["name"] if cur_memory else ""
+
+            _user_profile = settings["memorySettings"].get("userProfile", "")
+            if _user_profile:
+                _user_profile = _user_profile.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
+                content_append(request.messages, 'system', "\n## 用户档案\n" + _user_profile + "\n")
+
+            if cur_memory:
+                _soul = cur_memory.get("soul", "")
+                if _soul:
+                    _soul = _soul.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
+                    content_append(request.messages, 'system', "\n## 元层原则\n" + _soul + "\n")
+
             if settings["memorySettings"]["userName"]:
                 print("添加用户名：\n\n" + settings["memorySettings"]["userName"] + "\n\n用户名结束\n\n")
                 content_append(request.messages, 'system', "与你交流的默认用户名为：\n\n" + settings["memorySettings"]["userName"] + "\n\n注意！除非用户消息中提到了是其他用户发送，否则视为默认用户发送的消息\n\n")
@@ -3692,6 +3706,14 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                 # 替换cur_memory["systemPrompt"]中的{{char}}为cur_memory["name"]
                 settings["memorySettings"]["genericSystemPrompt"] = settings["memorySettings"]["genericSystemPrompt"].replace("{{char}}", cur_memory["name"])
                 content_append(request.messages, 'system', "\n\n" + settings["memorySettings"]["genericSystemPrompt"] + "\n\n")
+            if cur_memory:
+                _memory_notes = cur_memory.get("memoryNotes", "")
+                if _memory_notes:
+                    _memory_notes = _memory_notes.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
+                    content_append(request.messages, 'system', "\n## 记忆笔记\n" + _memory_notes + "\n")
+
+            # TODO: FTS recall 注入点——日记树 FTS 检索命中片段将在此处注入
+
             if m0 and not request.is_sub_agent:
                 memoryLimit = settings["memorySettings"]["memoryLimit"]
                 try:
