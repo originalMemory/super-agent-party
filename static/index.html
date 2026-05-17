@@ -1038,6 +1038,8 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <!-- 图标：主会话用房子，开发会话用分支，归档用归档图标，普通用气泡 -->
                         <i v-if="conv.kind === 'main'" class="fa-solid fa-house item-icon" style="color: var(--el-color-primary);"></i>
                         <i v-else-if="conv.kind === 'dev'" class="fa-solid fa-code-branch item-icon" style="color: var(--el-color-success);"></i>
+                        <i v-else-if="group.id === 'archive' && conv.original_kind === 'main'" class="fa-solid fa-house item-icon" style="color: var(--el-color-primary); opacity: 0.45;"></i>
+                        <i v-else-if="group.id === 'archive' && conv.original_kind === 'dev'" class="fa-solid fa-code-branch item-icon" style="color: var(--el-color-success); opacity: 0.45;"></i>
                         <i v-else-if="group.id === 'archive'" class="fa-solid fa-box-archive item-icon" style="opacity: 0.6;"></i>
                         <i v-else class="fa-regular fa-comment item-icon"></i>
                         
@@ -1062,11 +1064,13 @@ function updateElement(el, rawMarkdown, formatFn) {
                             </el-button>
                             <template #dropdown>
                               <el-dropdown-menu>
-                                <!-- 主会话：重命名 + 重置 + 归档（不可删） -->
+                                <!-- 主会话：重置 + 归档（不可删、不可改名） -->
                                 <template v-if="conv.kind === 'main'">
-                                  <el-dropdown-item @click="openRenameConversationDialog(conv)">{{ t('rename') }}</el-dropdown-item>
-                                  <el-dropdown-item divided @click="openResetMainSessionDialog(conv.id)">
+                                  <el-dropdown-item @click="openResetMainSessionDialog(conv.id)">
                                     <i class="fa-solid fa-rotate-left" style="margin-right: 6px;"></i>{{ t('resetMainSession') }}
+                                  </el-dropdown-item>
+                                  <el-dropdown-item divided @click="openArchiveMainSessionDialog(conv.id)">
+                                    <i class="fa-solid fa-box-archive" style="margin-right: 6px;"></i>{{ t('archiveMainSession') }}
                                   </el-dropdown-item>
                                 </template>
                                 <!-- 开发会话：重命名 + 归档 + 删除 -->
@@ -1301,13 +1305,8 @@ function updateElement(el, rawMarkdown, formatFn) {
 
                       <!-- 操作按钮区 -->
                       <div class="message-actions" v-if="!allBriefly||message.role !== 'system'||index === 0">
-                        <!-- 归档会话：仅显示"拉回主会话"和复制 -->
+                        <!-- 归档会话：仅显示复制 -->
                         <template v-if="isArchiveConversation">
-                          <el-tooltip v-if="message.role !== 'system'" :content="t('pullToMainSession')" placement="bottom">
-                            <el-button class="pull-to-main-btn" @click="pullToMainSession(message)" circle size="small" type="primary" plain>
-                              <i class="fa-solid fa-share-from-square"></i>
-                            </el-button>
-                          </el-tooltip>
                           <el-tooltip :content="t('copy')" placement="bottom">
                             <el-button class="copy-btn" @click="copyMessageContent(message)" circle size="small"><i class="fa-solid fa-copy"></i></el-button>
                           </el-tooltip>
@@ -3025,6 +3024,20 @@ function updateElement(el, rawMarkdown, formatFn) {
           <template #footer>
             <el-button @click="showResetMainSessionDialog = false">{{ t('cancel') }}</el-button>
             <el-button type="danger" @click="confirmResetMainSession">{{ t('reset') }}</el-button>
+          </template>
+        </el-dialog>
+
+        <!-- ── Lover：归档主会话确认弹窗 ── -->
+        <el-dialog
+          append-to-body
+          v-model="showArchiveMainSessionDialog"
+          :title="t('archiveMainSession')"
+          width="420px"
+        >
+          <p style="margin: 0; color: var(--el-text-color-regular);">{{ t('archiveMainSessionWarning') }}</p>
+          <template #footer>
+            <el-button @click="showArchiveMainSessionDialog = false">{{ t('cancel') }}</el-button>
+            <el-button type="primary" @click="confirmArchiveMainSession">{{ t('archive') }}</el-button>
           </template>
         </el-dialog>
 

@@ -719,6 +719,61 @@ let vue_methods = {
       this._pendingNewConvCcPath = ccPath;
       this._pendingNewConvTitle = title;
     },
+    openArchiveMainSessionDialog(convId) {
+      this.pendingArchiveMainConvId = convId;
+      this.showArchiveMainSessionDialog = true;
+    },
+    async confirmArchiveMainSession() {
+      const convId = this.pendingArchiveMainConvId;
+      if (!convId) return;
+
+      const conv = this.conversations.find(c => c.id === convId);
+      const baseTitle = (conv?.title) || this.t('mainSession');
+
+      let success = false;
+      try {
+        const resp = await fetch('/api/lover/archive-main-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversation_id: this.stringifyEntityId(convId),
+            title: baseTitle,
+          }),
+        });
+        if (!resp.ok) {
+          console.warn('[lover] archive-main-session returned', resp.status);
+          showNotification(this.t('requestFailed') || 'Request failed', 'error');
+        } else {
+          const data = await resp.json();
+          if (data.archived) {
+            this.conversations.push(data.archived);
+          }
+          success = true;
+        }
+      } catch (e) {
+        console.warn('[lover] archive-main-session failed:', e);
+        showNotification(this.t('requestFailed') || 'Request failed', 'error');
+      }
+
+      if (success) {
+        // 前端同步：清空原主会话消息
+        if (conv) {
+          conv.messages = [];
+          conv.timestamp = Date.now();
+        }
+        if (this.conversationId === convId) {
+          this.messages = [{ id: Date.now() + Math.random(), role: 'system', content: this.system_prompt }];
+          this.conversationId = null;
+          this.fileLinks = [];
+          this.randomGreetings();
+          this.requestScrollToBottom();
+        }
+        showNotification(this.t('mainSessionArchived'), 'success');
+      }
+
+      this.showArchiveMainSessionDialog = false;
+      this.pendingArchiveMainConvId = null;
+    },
     openResetMainSessionDialog(convId) {
       this.pendingResetConvId = convId;
       this.showResetMainSessionDialog = true;
@@ -765,31 +820,7 @@ let vue_methods = {
       this.pendingResetConvId = null;
       showNotification(this.t('mainSessionReset'), 'success');
     },
-    // ── 归档会话：拉回主会话 / 返回主会话 ────────────────────────────
-
-    /**
-     * 将归档会话中的一条消息以引用形式追加到主会话上下文，
-     * 然后切换到主会话并预填输入框。
-     */
-    pullToMainSession(message) {
-      const content = message.pure_content || message.content || '';
-      if (!content) return;
-
-      const archiveTitle = this.currentConversationTitle || this.t('archiveGroup');
-
-      // 切换到主会话
-      this.returnToMainSession();
-
-      // 预填输入框（引用格式，让用户看到内容后再发送）
-      const roleLabel = message.role === 'assistant' ? 'AI' : this.t('user') || '用户';
-      this.userInput = `[${this.t('pullFromArchive') || '引自归档'}「${archiveTitle}」- ${roleLabel}]\n${content}\n\n`;
-
-      showNotification(this.t('pulledToMainSession') || '已拉回到主会话输入框', 'success');
-    },
-
-    /**
-     * 切换到主会话（kind=main 的对话），若不存在则切换到默认分组。
-     */
+    // ── 归档会话：返回主会话 ────────────────────────────────────────
     returnToMainSession() {
       const mainConv = this.mainConversation;
       if (mainConv) {

@@ -29,8 +29,7 @@
 - [x] 4.2 启动时确保两个固定分组存在；`kind=main` 在主分组内单例
 - [x] 4.3 后端 API：主会话重置 / 归档；开发会话创建（可选 workspace_path）/ 重置 / 归档（触发摘要回流）；归档会话「拉回主会话」
 - [x] 4.4 `dev` bootstrap 装配：强制 lover/AGENTS.md + 人设三件套 + 绑定工作区的 `.agent/` 概要；`workspace_path` 失效时优雅降级
-- [ ] 4.5 写入隔离：`dev` 会话拒绝写 USER / IDENTITY / SOUL / lover/AGENTS.md / lover/MEMORY.md / lover/memory/
-- [ ] 4.6 摘要回流落盘：`lover/memory/YYYY/MM/<YYYY-MM-DD>-work-<slug>.md`；落盘后删除 `dev` 对话历史并写回 `summary_path`；起草失败时降级为仅含元信息的摘要文件
+- [x] 4.5 摘要回流落盘：`lover/memory/YYYY/MM/<YYYY-MM-DD>-work-<slug>.md`；落盘后删除 `dev` 对话历史并写回 `summary_path`；起草失败时降级为仅含元信息的摘要文件
 
 ## 5. 前端与酒馆移除
 

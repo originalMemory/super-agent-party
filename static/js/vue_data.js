@@ -210,6 +210,8 @@ let vue_data = {
     newDevSessionForm: { title: '', ccPath: '' },
     showResetMainSessionDialog: false,
     pendingResetConvId: null,
+    showArchiveMainSessionDialog: false,
+    pendingArchiveMainConvId: null,
     jsonFile: null,
     models: [],
     modelsLoading: false,

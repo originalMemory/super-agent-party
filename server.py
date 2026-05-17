@@ -3721,6 +3721,7 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
             # 优先从当前会话对象取 cc_path（dev 会话绑定的工作区），fallback 到全局 CLISettings
             _conv_obj = None
             _conv_kind = None
+            _cli_settings = settings.get("CLISettings", {})
             if request.conversation_id:
                 covs_data = await load_covs()
                 for _c in (covs_data.get("conversations") or []):
@@ -3729,9 +3730,9 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                         break
             if _conv_obj:
                 _conv_kind = _conv_obj.get("kind")
-                _ws_path = _conv_obj.get("cc_path") or (cli_settings.get("cc_path") if cli_settings.get("enabled") else None)
+                _ws_path = _conv_obj.get("cc_path") or (_cli_settings.get("cc_path") if _cli_settings.get("enabled") else None)
             else:
-                _ws_path = cli_settings.get("cc_path") if cli_settings.get("enabled") else None
+                _ws_path = _cli_settings.get("cc_path") if _cli_settings.get("enabled") else None
             if _ws_path and not Path(_ws_path).is_dir():
                 _ws_path = None
             lover_prompt = await _build_lover_system_prompt(
@@ -7229,6 +7230,7 @@ class LoverResetMainRequest(BaseModel):
 
 class LoverArchiveMainRequest(BaseModel):
     conversation_id: Union[str, int, float]
+    title: Optional[str] = None
 
 class LoverCreateDevRequest(BaseModel):
     title: str = ""
@@ -7263,11 +7265,13 @@ async def lover_archive_main_session(req: LoverArchiveMainRequest):
 
     archived = copy.deepcopy(conv)
     archived["id"] = shortuuid.ShortUUID().random(length=12)
+    archived["original_kind"] = "main"
     archived["kind"] = "archive"
     archived["groupId"] = "archive"
     archived["archived_at"] = int(time.time() * 1000)
     ts_label = datetime.now().strftime("%Y-%m-%d %H:%M")
-    archived["title"] = f"{conv.get('title', '')} [{ts_label}]".strip()
+    base_title = req.title or conv.get("title") or "Main Session"
+    archived["title"] = f"{base_title} [{ts_label}]"
     conversations.append(archived)
 
     conv["messages"] = []
@@ -7275,7 +7279,7 @@ async def lover_archive_main_session(req: LoverArchiveMainRequest):
 
     covs["conversations"] = conversations
     await save_covs(covs)
-    return {"success": True, "archived_id": archived["id"]}
+    return {"success": True, "archived_id": archived["id"], "archived": archived}
 
 @app.post("/api/lover/create-dev-session")
 async def lover_create_dev_session(req: LoverCreateDevRequest):
@@ -7330,6 +7334,7 @@ async def lover_archive_dev_session(req: LoverArchiveDevRequest):
             logger.warning("[lover/archive] 摘要落盘失败: %s", e)
 
     conv["messages"] = []
+    conv["original_kind"] = "dev"
     conv["kind"] = "archive"
     conv["groupId"] = "archive"
     conv["archived_at"] = int(time.time() * 1000)
