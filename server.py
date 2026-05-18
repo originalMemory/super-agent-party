@@ -740,6 +740,8 @@ async def lifespan(app: FastAPI):
                 proxy_url = None
             else:
                 proxy_url = manual_url
+                for _pk in ('http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY'):
+                    os.environ[_pk] = manual_url
         elif mode == "system":
             # 系统模式：信任环境（此时环境里已经没有 socks 了，很安全）
             trust_env = True
@@ -854,6 +856,37 @@ async def lifespan(app: FastAPI):
     else:
         asyncio.create_task(ws_manager.broadcast_settings_update(settings or {}))
 
+    # --- [FTS 日记树记忆索引] ---
+    _fts_sync_task = None
+    try:
+        from py.lover_memory_fts import (
+            lover_memory_options,
+            sync_memory_index,
+            workspace_root_from_settings,
+        )
+
+        _fts_workspace = workspace_root_from_settings(settings)
+        _fts_opts = lover_memory_options(settings)
+
+        if _fts_workspace and _fts_workspace.is_dir():
+            await asyncio.to_thread(sync_memory_index, _fts_workspace, _fts_opts)
+
+            async def _fts_periodic_sync():
+                while True:
+                    opts = lover_memory_options(settings)
+                    interval = opts.get("sync_interval_sec", 600)
+                    await asyncio.sleep(interval)
+                    try:
+                        ws = workspace_root_from_settings(settings)
+                        if ws and ws.is_dir():
+                            await asyncio.to_thread(sync_memory_index, ws, opts)
+                    except Exception as exc:
+                        logging.getLogger(__name__).warning("[FTS] 周期同步异常: %s", exc)
+
+            _fts_sync_task = asyncio.create_task(_fts_periodic_sync())
+    except Exception as e:
+        logging.getLogger(__name__).warning("[FTS] 启动索引失败（非致命）: %s", e)
+
     # --- [启动完成] ---
     yield
 
@@ -866,6 +899,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"防休眠停止异常: {e}")
 
+    if _fts_sync_task:
+        _fts_sync_task.cancel()
     if scheduler_task:
         scheduler_task.cancel()
     ext_ids = list(node_mgr.exts.keys())
@@ -3736,7 +3771,21 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                     _memory_notes = _memory_notes.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
                     content_append(request.messages, 'system', "\n## 记忆笔记\n" + _memory_notes + "\n")
 
-            # TODO: FTS recall 注入点——日记树 FTS 检索命中片段将在此处注入
+            if not request.is_sub_agent:
+                try:
+                    from py.lover_memory_fts import search_memory, workspace_root_from_settings as fts_ws, lover_memory_options as fts_opts
+                    _fts_ws = fts_ws(settings)
+                    if _fts_ws and _fts_ws.is_dir():
+                        _fts_results = await asyncio.to_thread(
+                            search_memory, _fts_ws, user_prompt, 6, fts_opts(settings)
+                        )
+                        if _fts_results:
+                            _fts_block = "\n## 相关回忆\n"
+                            for hit in _fts_results:
+                                _fts_block += f"- [{hit['path']}] {hit['snippet']}\n"
+                            content_append(request.messages, 'system', _fts_block)
+                except Exception as _fts_err:
+                    print(f"[FTS] 检索异常: {_fts_err}")
 
             if m0 and not request.is_sub_agent:
                 memoryLimit = settings["memorySettings"]["memoryLimit"]

@@ -22,13 +22,13 @@
 
 ## 4. 日记树 FTS 记忆检索
 
-- [ ] 4.1 从 lover 分支移植 `py/lover_memory_fts.py`、`py/lover_fts_simple_auto.py` 到 multiLovers
-- [ ] 4.2 配置项：`memorySettings.memoryDirPath`（日记树根目录，默认空 = `{USER_DATA_DIR}/lover/memory/`）、`memorySettings.memoryIndexSyncMinutes`（默认 10 分钟）
-- [ ] 4.3 索引白名单：`memoryDirPath` 下递归 `.md`；**不索引** `soul`、`userProfile`、`memoryNotes` 字段内容
-- [ ] 4.4 分词器优先级：wangfenjin/simple → trigram → unicode61 自动降级
-- [ ] 4.5 索引同步：`lifespan` 启动时 `sync_memory_index` 一次 + 后台按间隔同步
-- [ ] 4.6 每轮检索：`search_memory(user_prompt)` → 命中片段注入 `## 相关回忆` 块
-- [ ] 4.7 校验各平台 libsimple 与 Python 自带 SQLite 兼容性；PyInstaller 打包说明
+- [x] 4.1 从 lover 分支移植 `py/lover_memory_fts.py`、`py/lover_fts_simple_auto.py` 到 multiLovers
+- [x] 4.2 配置项：`memorySettings.memoryDirPath`（日记树根目录，默认空 = `{USER_DATA_DIR}/lover/memory/`）、`memorySettings.memoryIndexSyncMinutes`（默认 10 分钟）
+- [x] 4.3 索引白名单：`memoryDirPath` 下递归 `.md`；**不索引** `soul`、`userProfile`、`memoryNotes` 字段内容
+- [x] 4.4 分词器优先级：wangfenjin/simple → trigram → unicode61 自动降级
+- [x] 4.5 索引同步：`lifespan` 启动时 `sync_memory_index` 一次 + 后台按间隔同步
+- [x] 4.6 每轮检索：`search_memory(user_prompt)` → 命中片段注入 `## 相关回忆` 块
+- [x] 4.7 校验各平台 libsimple 与 Python 自带 SQLite 兼容性；PyInstaller 打包说明
 
 ## 5. 前端 UI
 
