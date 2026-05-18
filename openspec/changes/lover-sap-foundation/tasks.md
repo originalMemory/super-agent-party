@@ -15,10 +15,10 @@
 
 ## 3. AI 工具：角色卡查看与修改
 
-- [ ] 3.1 新建 `py/character_card_tools.py`：实现 `get_character_card`、`update_character_card`、`update_user_profile` 三个工具函数
-- [ ] 3.2 `server.py` `dispatch_tool`：在 `_TOOL_HOOKS` 中注册三个工具；加入 `SENSITIVE_TOOLS` 需用户审批
-- [ ] 3.3 `update_character_card` 可写字段白名单：`soul`、`memoryNotes`、`description`、`personality`、`systemPrompt`、`mesExample`
-- [ ] 3.4 工具调用后通过 `save_settings()` 持久化，并通过 WebSocket 通知前端刷新
+- [x] 3.1 新建 `py/character_card_tools.py`：实现 `get_character_card`、`update_character_card`、`update_user_profile` 三个工具函数 + tool schema
+- [x] 3.2 `server.py` `dispatch_tool`：在 `_TOOL_HOOKS` 中注册三个工具；`update_character_card`、`update_user_profile` 加入 `SENSITIVE_TOOLS`
+- [x] 3.3 `update_character_card` 可写字段白名单：`soul`、`memoryNotes`、`description`、`personality`、`systemPrompt`、`mesExample`
+- [x] 3.4 工具调用后通过 `save_settings()` 持久化 + `ws_manager.broadcast_settings_update()` 通知前端；角色卡启用时自动注册 tool schema 到 tools 列表
 
 ## 4. 日记树 FTS 记忆检索
 

@@ -1150,6 +1150,11 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict,is_sub
 
     from py.mode_change import update_workspace_settings
     from py.acpx_tools import acpx_agent
+    from py.character_card_tools import (
+        get_character_card,
+        update_character_card,
+        update_user_profile,
+    )
 
     # ==================== 2. 定义工具映射表 ====================
     _TOOL_HOOKS = {
@@ -1260,6 +1265,10 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict,is_sub
 
         "update_workspace_settings":update_workspace_settings,
         "acpx_agent":acpx_agent,
+
+        "get_character_card": get_character_card,
+        "update_character_card": update_character_card,
+        "update_user_profile": update_user_profile,
     }
     
     # ==================== 3. 权限拦截逻辑 (Human-in-the-loop) ====================
@@ -1277,6 +1286,8 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict,is_sub
         "kill_process_tool",
         "docker_manage_ports_tool",
         "local_net_tool",
+        "update_character_card",
+        "update_user_profile",
     ]
     
     # 只有当调用的工具属于敏感工具列表时才进行拦截检查
@@ -1478,6 +1489,9 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict,is_sub
             settings = ret_out
             await ws_manager.broadcast_settings_update(settings)
             ret_out = "任务设置成功！"
+        elif tool_name in ("update_character_card", "update_user_profile"):
+            updated_settings = await load_settings()
+            await ws_manager.broadcast_settings_update(updated_settings)
         return ret_out
     except Exception as e:
         logger.error(f"Error calling tool {tool_name}: {e}")
@@ -3615,6 +3629,16 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                     }
                     tools.append(comfyui_tool)
         
+        if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and not request.is_sub_agent:
+            from py.character_card_tools import (
+                get_character_card_tool,
+                update_character_card_tool,
+                update_user_profile_tool,
+            )
+            tools.append(get_character_card_tool)
+            tools.append(update_character_card_tool)
+            tools.append(update_user_profile_tool)
+
         source_prompt = ""
         if request.fileLinks:
             print("fileLinks",request.fileLinks)
@@ -6633,6 +6657,11 @@ async def execute_tool_manually(request: Request):
 
     from py.mode_change import update_workspace_settings
     from py.acpx_tools import acpx_agent
+    from py.character_card_tools import (
+        get_character_card,
+        update_character_card,
+        update_user_profile,
+    )
 
     # ==================== 2. 定义工具映射表 ====================
     _TOOL_HOOKS = {
@@ -6743,6 +6772,10 @@ async def execute_tool_manually(request: Request):
 
         "update_workspace_settings":update_workspace_settings,
         "acpx_agent":acpx_agent,
+
+        "get_character_card": get_character_card,
+        "update_character_card": update_character_card,
+        "update_user_profile": update_user_profile,
     }
     
 
