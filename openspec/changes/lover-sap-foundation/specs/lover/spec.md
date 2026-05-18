@@ -4,23 +4,23 @@
 
 The implementation MUST conform to all normative statements ("必须" / "不得") in this requirement.
 
-角色卡 `memories[]` **必须**新增 `soul`（元层原则）和 `memoryNotes`（记忆笔记）字段。`memorySettings` **必须**新增 `userProfile`（用户档案）字段。
+角色卡 `memories[]` **必须**新增 `soul`（元层原则）字段。`memorySettings` **必须**新增 `userProfile`（用户档案）和 `memoryNotes`（记忆笔记）字段，二者所有角色**共享**。
 
 所有新字段**必须**默认为空字符串。空字符串时**不得**注入 system prompt，以保证老角色卡**向后兼容**。
 
 - **`soul`**：角色卡级；定义元层运行原则（价值观、语调、主动性边界）。
-- **`memoryNotes`**：角色卡级；手写长期记忆，与 mem0 自动记忆互补。
+- **`memoryNotes`**：`memorySettings` 级；所有角色**共享**的手写长期记忆，沉淀与用户相关的长期事实与约定。
 - **`userProfile`**：`memorySettings` 级；所有角色**共享**的用户档案。
 
 #### Scenario: 向后兼容
 
-- **当** 用户加载一张不含 `soul`、`memoryNotes` 字段的旧角色卡
+- **当** 用户加载一张不含 `soul` 字段的旧角色卡
 - **则** 系统**必须**自动补全默认空值，注入行为与现有版本一致。
 
-#### Scenario: userProfile 跨角色共享
+#### Scenario: userProfile 和 memoryNotes 跨角色共享
 
-- **当** 用户在 `memorySettings` 中配置了 `userProfile`
-- **则** 无论切换到哪张角色卡，`userProfile` 均**必须**保持不变并参与注入。
+- **当** 用户在 `memorySettings` 中配置了 `userProfile` 或 `memoryNotes`
+- **则** 无论切换到哪张角色卡，二者均**必须**保持不变并参与注入。
 
 ---
 
@@ -39,7 +39,7 @@ The implementation MUST conform to all normative statements ("必须" / "不得"
 7. `mesExample` 对话示例（已有）
 8. `systemPrompt` 角色系统提示（已有）
 9. `genericSystemPrompt` 通用系统提示（已有）
-10. `memoryNotes`（非空时，常驻全文注入）
+10. `memoryNotes`（非空时，从 `memorySettings` 读取，常驻全文注入）
 11. FTS recall（日记树检索命中片段）
 12. mem0 recall（已有，**默认关闭**，用户手动配置 providerId 时生效）
 
@@ -118,21 +118,22 @@ The implementation MUST conform to all normative statements ("必须" / "不得"
 
 系统**必须**向 AI 提供以下工具，注册到 `dispatch_tool` 工具映射表：
 
-1. **`get_character_card`**：读取当前选中角色卡的完整信息或指定字段，同时返回 `memorySettings.userProfile`。
-2. **`update_character_card`**：修改当前选中角色卡的指定字段。**可写字段白名单**：`soul`、`memoryNotes`、`description`、`personality`、`systemPrompt`、`mesExample`。**不得**允许修改 `name`、`avatar`、`providerId` 等结构性字段。
+1. **`get_character_card`**：读取当前选中角色卡的完整信息或指定字段，同时返回 `memorySettings.userProfile` 和 `memorySettings.memoryNotes`。
+2. **`update_character_card`**：修改当前选中角色卡的指定字段。**可写字段白名单**：`soul`、`description`、`personality`、`systemPrompt`、`mesExample`。**不得**允许修改 `name`、`avatar`、`providerId` 等结构性字段。
 3. **`update_user_profile`**：修改全局用户档案（`memorySettings.userProfile`）。
+4. **`update_memory_notes`**：修改全局记忆笔记（`memorySettings.memoryNotes`）。
 
-三个工具**必须**归入 `SENSITIVE_TOOLS`，执行前**须**用户审批。修改后**必须**调用 `save_settings()` 持久化，并通知前端刷新。
+四个工具**必须**归入 `SENSITIVE_TOOLS`（`get_character_card` 除外），执行前**须**用户审批。修改后**必须**调用 `save_settings()` 持久化，并通知前端刷新。
 
 #### Scenario: AI 读取角色卡
 
 - **当** AI 调用 `get_character_card` 且不传 `fields` 参数
-- **则** 返回当前角色卡的全部字段内容以及全局 `userProfile`。
+- **则** 返回当前角色卡的全部字段内容以及全局 `userProfile` 和 `memoryNotes`。
 
 #### Scenario: AI 修改 memoryNotes
 
-- **当** AI 调用 `update_character_card` 修改 `memoryNotes` 字段
-- **则** 修改**必须**经用户审批后生效并持久化。
+- **当** AI 调用 `update_memory_notes` 修改 `memoryNotes`
+- **则** 修改**必须**经用户审批后生效并持久化到 `memorySettings.memoryNotes`。
 
 #### Scenario: AI 修改结构性字段被拒绝
 
@@ -191,18 +192,20 @@ The implementation MUST conform to all normative statements ("必须" / "不得"
 角色卡编辑界面**必须**新增以下编辑区域：
 
 1. **SOUL / 元层原则**：Markdown 文本编辑区，对应 `memories[i].soul`
-2. **记忆笔记**：Markdown 文本编辑区，对应 `memories[i].memoryNotes`
 
-`memorySettings` 编辑区域**必须**新增：
+**必须**新增独立「用户档案与记忆」Tab（与角色卡配置同级），包含：
 
-3. **用户档案**：Markdown 文本编辑区，对应 `memorySettings.userProfile`，并标注"所有角色共享"
+2. **日记树目录**：路径输入框，对应 `memorySettings.memoryDirPath`
+3. **FTS 同步间隔**：数字输入，对应 `memorySettings.memoryIndexSyncMinutes`
+4. **记忆笔记**：Markdown 文本编辑区，对应 `memorySettings.memoryNotes`（所有角色共享）
+5. **用户档案**：Markdown 文本编辑区，对应 `memorySettings.userProfile`（所有角色共享，放最下方）
 
 现有角色卡列表、换卡、TTS 多角色语音、VRM 多角色外观等 UI **不得**删除。
 
 #### Scenario: 新建角色卡
 
 - **当** 用户新建一张角色卡
-- **则** `soul` 和 `memoryNotes` 字段**必须**初始化为空字符串。
+- **则** `soul` 字段**必须**初始化为空字符串。
 
 ---
 
@@ -225,7 +228,7 @@ The implementation MUST conform to all normative statements ("必须" / "不得"
 #### Scenario: 多角色切换
 
 - **当** 用户切换角色卡
-- **则** `soul`、`memoryNotes` 随角色卡切换，`userProfile` 保持不变。
+- **则** `soul` 随角色卡切换，`userProfile` 和 `memoryNotes` 保持不变（全局共享）。
 
 ---
 

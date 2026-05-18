@@ -386,12 +386,54 @@ async function findAvailablePort(startPort = DEFAULT_PORT, maxAttempts = 20000) 
 }
 
 
+// ── 窗口状态持久化 ────────────────────────────────────────────────
+function _windowStatePath() {
+  return path.join(app.getPath('userData'), 'window-state.json')
+}
+
+function _loadWindowState() {
+  try {
+    const raw = fs.readFileSync(_windowStatePath(), 'utf-8')
+    return JSON.parse(raw)
+  } catch (_) {
+    return null
+  }
+}
+
+function _saveWindowState(win) {
+  try {
+    const isMax = win.isMaximized()
+    const bounds = isMax ? null : win.getBounds()
+    fs.writeFileSync(_windowStatePath(), JSON.stringify({ bounds, isMaximized: isMax }), 'utf-8')
+  } catch (_) {}
+}
+
+function _isValidBounds(bounds, workAreaSize) {
+  if (!bounds) return false
+  const { width: sw, height: sh } = workAreaSize
+  // 至少有 100x100 的区域在屏幕内
+  return (
+    bounds.width > 100 && bounds.height > 100 &&
+    bounds.x < sw - 50 && bounds.y < sh - 50 &&
+    bounds.x + bounds.width > 50 && bounds.y + bounds.height > 50
+  )
+}
+
 // 创建骨架屏窗口
 function createSkeletonWindow() {
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize
+  const workAreaSize = screen.getPrimaryDisplay().workAreaSize
+  const { width, height } = workAreaSize
+  const savedState = _loadWindowState()
+
+  const useBounds = savedState && !savedState.isMaximized && _isValidBounds(savedState.bounds, workAreaSize)
+    ? savedState.bounds
+    : { width, height, x: undefined, y: undefined }
+
   mainWindow = new BrowserWindow({
-    width: width,
-    height: height,
+    width: useBounds.width,
+    height: useBounds.height,
+    x: useBounds.x,
+    y: useBounds.y,
     frame: false,
     titleBarStyle: 'hiddenInset', // macOS 特有：隐藏标题栏但仍显示原生按钮
     trafficLightPosition: { x: 10, y: 12 }, // 自定义按钮位置（可选）
@@ -410,6 +452,10 @@ function createSkeletonWindow() {
     }
   })
 
+  if (savedState?.isMaximized) {
+    mainWindow.maximize()
+  }
+
   remoteMain.enable(mainWindow.webContents)
   
   // 加载骨架屏页面
@@ -425,9 +471,21 @@ function createSkeletonWindow() {
   mainWindow.on('unmaximize', () => {
     mainWindow.webContents.send('window-state', 'normal')
   })
+
+  // 窗口位置 / 尺寸变更时延迟保存（防抖）
+  let _saveStateTimer = null
+  const _debouncedSave = () => {
+    if (_saveStateTimer) clearTimeout(_saveStateTimer)
+    _saveStateTimer = setTimeout(() => _saveWindowState(mainWindow), 500)
+  }
+  mainWindow.on('resize', _debouncedSave)
+  mainWindow.on('move', _debouncedSave)
+  mainWindow.on('maximize', _debouncedSave)
+  mainWindow.on('unmaximize', _debouncedSave)
   
   // 窗口关闭事件处理 - 最小化到托盘而不是退出
   mainWindow.on('close', (event) => {
+    _saveWindowState(mainWindow)
     if (!app.isQuitting) {
       event.preventDefault()
       mainWindow.hide()

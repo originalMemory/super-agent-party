@@ -6014,7 +6014,6 @@ let vue_methods = {
         alternateGreetings: this.newMemory.alternateGreetings.filter(Boolean),
         characterBook: this.newMemory.characterBook.filter(e => e.keysRaw.trim() || e.content.trim()),
         soul: this.newMemory.soul || '',
-        memoryNotes: this.newMemory.memoryNotes || '',
       });
 
       let memory;
@@ -7147,7 +7146,6 @@ handleCreateSlackSeparator(val) {
         alternateGreetings: [],
         characterBook: [{ keysRaw: '', content: '' }],
         soul: '',
-        memoryNotes: '',
       };
     },
     copyExistingMemoryData(selectedId) {
@@ -7183,7 +7181,6 @@ handleCreateSlackSeparator(val) {
                   content: l.value
                 })),
           soul: src.soul || '',
-          memoryNotes: src.memoryNotes || '',
         };
            if (this.newMemory.characterBook.length == 0 ){
               this.newMemory.characterBook = [{ keysRaw: '', content: '' }]

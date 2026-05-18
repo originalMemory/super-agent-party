@@ -1189,6 +1189,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict,is_sub
         get_character_card,
         update_character_card,
         update_user_profile,
+        update_memory_notes,
     )
 
     # ==================== 2. 定义工具映射表 ====================
@@ -1304,6 +1305,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict,is_sub
         "get_character_card": get_character_card,
         "update_character_card": update_character_card,
         "update_user_profile": update_user_profile,
+        "update_memory_notes": update_memory_notes,
     }
     
     # ==================== 3. 权限拦截逻辑 (Human-in-the-loop) ====================
@@ -1323,6 +1325,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict,is_sub
         "local_net_tool",
         "update_character_card",
         "update_user_profile",
+        "update_memory_notes",
     ]
     
     # 只有当调用的工具属于敏感工具列表时才进行拦截检查
@@ -1524,7 +1527,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict,is_sub
             settings = ret_out
             await ws_manager.broadcast_settings_update(settings)
             ret_out = "任务设置成功！"
-        elif tool_name in ("update_character_card", "update_user_profile"):
+        elif tool_name in ("update_character_card", "update_user_profile", "update_memory_notes"):
             updated_settings = await load_settings()
             await ws_manager.broadcast_settings_update(updated_settings)
         return ret_out
@@ -3669,10 +3672,12 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                 get_character_card_tool,
                 update_character_card_tool,
                 update_user_profile_tool,
+                update_memory_notes_tool,
             )
             tools.append(get_character_card_tool)
             tools.append(update_character_card_tool)
             tools.append(update_user_profile_tool)
+            tools.append(update_memory_notes_tool)
 
         source_prompt = ""
         if request.fileLinks:
@@ -3765,11 +3770,10 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                 # 替换cur_memory["systemPrompt"]中的{{char}}为cur_memory["name"]
                 settings["memorySettings"]["genericSystemPrompt"] = settings["memorySettings"]["genericSystemPrompt"].replace("{{char}}", cur_memory["name"])
                 content_append(request.messages, 'system', "\n\n" + settings["memorySettings"]["genericSystemPrompt"] + "\n\n")
-            if cur_memory:
-                _memory_notes = cur_memory.get("memoryNotes", "")
-                if _memory_notes:
-                    _memory_notes = _memory_notes.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
-                    content_append(request.messages, 'system', "\n## 记忆笔记\n" + _memory_notes + "\n")
+            _memory_notes = settings["memorySettings"].get("memoryNotes", "")
+            if _memory_notes:
+                _memory_notes = _memory_notes.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
+                content_append(request.messages, 'system', "\n## 记忆笔记\n" + _memory_notes + "\n")
 
             if not request.is_sub_agent:
                 try:
@@ -6710,6 +6714,7 @@ async def execute_tool_manually(request: Request):
         get_character_card,
         update_character_card,
         update_user_profile,
+        update_memory_notes,
     )
 
     # ==================== 2. 定义工具映射表 ====================
@@ -6825,6 +6830,7 @@ async def execute_tool_manually(request: Request):
         "get_character_card": get_character_card,
         "update_character_card": update_character_card,
         "update_user_profile": update_user_profile,
+        "update_memory_notes": update_memory_notes,
     }
     
 

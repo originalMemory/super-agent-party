@@ -13,7 +13,7 @@
 | **SOUL.md**（元层原则） | 角色卡新增 **`soul`** 字段（Markdown 文本） | `memories[i].soul` |
 | **IDENTITY.md**（叙事身份） | 已有字段覆盖：`description` + `personality` + `systemPrompt` | `memories[i].description` 等 |
 | **USER.md**（用户档案） | `memorySettings` 新增 **`userProfile`** 字段（Markdown 文本），所有角色共享 | `memorySettings.userProfile` |
-| **MEMORY.md**（长期记忆） | 角色卡新增 **`memoryNotes`** 字段（Markdown 文本） | `memories[i].memoryNotes` |
+| **MEMORY.md**（长期记忆） | `memorySettings` 新增 **`memoryNotes`** 字段（Markdown 文本），所有角色共享 | `memorySettings.memoryNotes` |
 | **AGENTS.md**（操作约束） | **方案 A：不进角色卡**。复用全局 `system_prompt` + 工作区 `.agent/AGENTS.md`（已有通路） | 现有路径不变 |
 
 ### 字段详情
@@ -38,15 +38,15 @@ memorySettings.userProfile = "用户叫小明，喜欢被称为'明哥'..."
 
 注入优先级最高（在 `soul` 之前），让所有角色均可感知用户偏好。
 
-#### `memoryNotes`（新增，角色卡级）
+#### `memoryNotes`（新增，全局共享）
 
-手写的长期记忆笔记。与 mem0 自动向量记忆互补：mem0 由 AI 自动提炼，`memoryNotes` 由用户手工维护，内容完全可见可控。
+手写的长期记忆笔记，所有角色共享。与 mem0 自动向量记忆互补：mem0 由 AI 自动提炼，`memoryNotes` 由用户手工维护，内容完全可见可控。`memoryNotes` 沉淀的是与**用户**相关的长期事实与约定，而非特定角色属性，因此属于全局级。
 
 ```
-memories[i].memoryNotes = "- 2026-05-01 一起看了《星际穿越》\n- 喜欢在晚上聊天..."
+memorySettings.memoryNotes = "- 2026-05-01 一起看了《星际穿越》\n- 喜欢在晚上聊天..."
 ```
 
-注入位置在 `genericSystemPrompt` 之后、mem0 recall 之前。
+注入位置在 `genericSystemPrompt` 之后、FTS recall 之前。
 
 ---
 
@@ -87,15 +87,13 @@ OpenClaw 要求 AGENTS.md **必注入、优先级最高**。在 SAP 体系中，
   "providerId": "...",
   "infer": true,
 
-  "soul": "",
-  "memoryNotes": ""
+  "soul": ""
 }
 ```
 
 | 新字段 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | `soul` | `string` | `""` | 元层原则 Markdown；空时跳过注入 |
-| `memoryNotes` | `string` | `""` | 手写长期记忆 Markdown；空时跳过注入 |
 
 ### `memorySettings` 新增字段
 
@@ -108,6 +106,7 @@ OpenClaw 要求 AGENTS.md **必注入、优先级最高**。在 SAP 体系中，
   "memoryLimit": 5,
 
   "userProfile": "",
+  "memoryNotes": "",
   "memoryDirPath": "",
   "memoryIndexSyncMinutes": 10
 }
@@ -116,6 +115,7 @@ OpenClaw 要求 AGENTS.md **必注入、优先级最高**。在 SAP 体系中，
 | 新字段 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | `userProfile` | `string` | `""` | 用户档案 Markdown；空时跳过注入；所有角色共享 |
+| `memoryNotes` | `string` | `""` | 手写长期记忆 Markdown；空时跳过注入；所有角色共享 |
 | `memoryDirPath` | `string` | `""` | 日记树根目录；空值时使用 `{USER_DATA_DIR}/lover/memory/` |
 | `memoryIndexSyncMinutes` | `number` | `10` | FTS 索引同步间隔（分钟） |
 
@@ -125,7 +125,7 @@ OpenClaw 要求 AGENTS.md **必注入、优先级最高**。在 SAP 体系中，
 
 ### 设置模板
 
-`config/settings_template.json` 中 `memories[]` 项新增 `soul`、`memoryNotes`（默认 `""`），`memorySettings` 新增 `userProfile`（默认 `""`）。
+`config/settings_template.json` 中 `memories[]` 项新增 `soul`（默认 `""`），`memorySettings` 新增 `userProfile`、`memoryNotes`（默认 `""`）。
 
 ---
 
@@ -195,8 +195,8 @@ if soul:
 # ③ userName  ④ characterBook  ⑤ description  ⑥ personality
 # ⑦ mesExample  ⑧ systemPrompt  ⑨ genericSystemPrompt
 
-# === 新增：memoryNotes（角色卡级，常驻注入） ===
-memory_notes = cur_memory.get("memoryNotes", "")
+# === 新增：memoryNotes（全局共享，常驻注入） ===
+memory_notes = memory_settings.get("memoryNotes", "")
 if memory_notes:
     memory_notes = memory_notes.replace("{{user}}", user_name).replace("{{char}}", cur_name)
     content_append(messages, f"\n## 记忆笔记\n{memory_notes}")
@@ -239,7 +239,7 @@ if memory_notes:
 }
 ```
 
-返回当前 `memorySettings.selectedMemory` 对应角色卡的字段内容。同时返回 `memorySettings.userProfile`。
+返回当前 `memorySettings.selectedMemory` 对应角色卡的字段内容。同时返回 `memorySettings.userProfile` 和 `memorySettings.memoryNotes`。
 
 ### `update_character_card`
 
@@ -254,7 +254,7 @@ if memory_notes:
     "properties": {
       "field": {
         "type": "string",
-        "description": "要修改的字段名，如 'soul', 'memoryNotes', 'description', 'personality' 等"
+        "description": "要修改的字段名，如 'soul', 'description', 'personality' 等"
       },
       "value": {
         "type": "string",
@@ -266,7 +266,7 @@ if memory_notes:
 }
 ```
 
-**可写字段白名单**：`soul`、`memoryNotes`、`description`、`personality`、`systemPrompt`、`mesExample`。**不可通过工具修改** `name`、`avatar`、`providerId` 等结构性字段。
+**可写字段白名单**：`soul`、`description`、`personality`、`systemPrompt`、`mesExample`。**不可通过工具修改** `name`、`avatar`、`providerId` 等结构性字段。`memoryNotes` 已移至全局级，通过 `update_memory_notes` 工具修改。
 
 ### `update_user_profile`
 
@@ -282,6 +282,27 @@ if memory_notes:
       "value": {
         "type": "string",
         "description": "新的用户档案内容（Markdown）"
+      }
+    },
+    "required": ["value"]
+  }
+}
+```
+
+### `update_memory_notes`
+
+修改全局记忆笔记（所有角色共享）。
+
+```json
+{
+  "name": "update_memory_notes",
+  "description": "修改所有角色共享的记忆笔记（memoryNotes）——长期事实与约定。修改后自动保存。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "value": {
+        "type": "string",
+        "description": "新的记忆笔记内容（Markdown）"
       }
     },
     "required": ["value"]
@@ -309,17 +330,18 @@ if memory_notes:
 
 ### 角色卡编辑界面
 
-在现有角色卡编辑表单中新增两个 tab 或折叠区域：
+在现有角色卡编辑表单中新增一个 tab：
 
 1. **SOUL / 元层原则**：Markdown 文本编辑区，对应 `memories[i].soul`
-2. **记忆笔记**：Markdown 文本编辑区，对应 `memories[i].memoryNotes`
 
-### 用户档案编辑
+### 用户档案与记忆 Tab
 
-在 `memorySettings` 编辑区域（角色卡设定区域的"通用"部分）新增：
+新增独立 Tab「用户档案与记忆」，与角色卡配置同级（非嵌套在角色卡编辑中），包含：
 
-- **用户档案**：Markdown 文本编辑区，对应 `memorySettings.userProfile`
-- 提示文案：此档案对所有角色共享
+1. **日记树目录**：路径输入框，对应 `memorySettings.memoryDirPath`
+2. **FTS 同步间隔**：数字输入，对应 `memorySettings.memoryIndexSyncMinutes`
+3. **记忆笔记**：Markdown 文本编辑区，对应 `memorySettings.memoryNotes`（所有角色共享）
+4. **用户档案**：Markdown 文本编辑区，对应 `memorySettings.userProfile`（所有角色共享，放最下方，内容可能较长）
 
 ### 无需删除的现有 UI
 
@@ -404,7 +426,7 @@ if memory_notes:
 |------|------|--------|----------|----------|
 | **soul** | 角色卡字段 | 用户 | 每轮 bootstrap 常驻 | — |
 | **userProfile** | memorySettings 字段 | 用户 | 每轮 bootstrap 常驻 | — |
-| **memoryNotes** | 角色卡字段 | 用户 | 每轮 bootstrap 常驻 | **不进 FTS**（内容量可控，参考 OpenClaw MEMORY.md 约 180 行） |
+| **memoryNotes** | memorySettings 字段（全局共享） | 用户 / AI | 每轮 bootstrap 常驻 | **不进 FTS**（内容量可控，参考 OpenClaw MEMORY.md 约 180 行） |
 | **日记树 FTS** | SQLite FTS5 | 摘要回流 / 用户手写 | 每轮动态检索 | `{USER_DATA_DIR}/lover/memory/` 下递归 `.md` |
 | **mem0 recall** | 向量检索 | AI 自动提炼 | 每轮动态（**默认关闭**） | — |
 
@@ -450,14 +472,14 @@ if memory_notes:
 | 区域 | 触点 |
 |------|------|
 | **后端** | `server.py` `generate_stream_response`：在现有 `cur_memory` 注入链中插入 `userProfile` / `soul` / `memoryNotes` / FTS recall 四个注入点 |
-| **后端** | `py/character_card_tools.py`（新建）：`get_character_card` / `update_character_card` / `update_user_profile` AI 工具 |
+| **后端** | `py/character_card_tools.py`（新建）：`get_character_card` / `update_character_card` / `update_user_profile` / `update_memory_notes` AI 工具 |
 | **后端** | `server.py` `dispatch_tool`：注册角色卡工具到 `_TOOL_HOOKS` + `SENSITIVE_TOOLS` |
 | **后端** | `py/lover_memory_fts.py` + `py/lover_fts_simple_auto.py`：日记树 FTS 索引与检索（从 lover 分支移植） |
 | **后端** | `py/get_setting.py`：`load_settings` / `save_settings` 自动兼容新字段（JSON 整包，无需 schema 迁移） |
 | **后端** | `config/settings_template.json`：新增字段默认值 |
-| **前端** | `static/index.html`：角色卡编辑表单新增 SOUL / 记忆笔记区域；memorySettings 编辑新增用户档案 |
-| **前端** | `static/js/vue_data.js`：`memories[]` 初始结构新增 `soul`、`memoryNotes`；`memorySettings` 新增 `userProfile` |
-| **前端** | `static/js/vue_methods.js`：`addMemory` 时初始化新字段；`autoSaveSettings` 无需改动（已整包保存） |
+| **前端** | `static/index.html`：角色卡编辑表单新增 SOUL 区域；新增独立「用户档案与记忆」Tab（含 memoryNotes、userProfile、日记树配置） |
+| **前端** | `static/js/vue_data.js`：`memories[]` 初始结构新增 `soul`；`memorySettings` 新增 `userProfile`、`memoryNotes` |
+| **前端** | `static/js/vue_methods.js`：`addMemory` 时初始化 `soul`；`autoSaveSettings` 无需改动（已整包保存） |
 
 ---
 
@@ -465,8 +487,8 @@ if memory_notes:
 
 1. **扩展不替换**：在角色卡上新增字段，不删除/替代现有字段与通路
 2. **向后兼容**：新字段空值时行为与现有版本一致
-3. **关注点分离**：`soul` = 元层原则，`description`/`personality` = 叙事身份，`memoryNotes` = 可见记忆，`mem0` = 自动记忆
-4. **角色卡为锚点**：切换角色 = 切换人设 + 语音 + 形象 + soul + memoryNotes，一致联动
+3. **关注点分离**：`soul` = 元层原则，`description`/`personality` = 叙事身份，`memoryNotes` = 全局可见记忆（用户级），`mem0` = 自动记忆
+4. **角色卡为锚点**：切换角色 = 切换人设 + 语音 + 形象 + soul，一致联动；`memoryNotes` 和 `userProfile` 为全局共享，不随角色切换
 5. **AGENTS.md 是环境约束**：不进角色卡，复用全局 system_prompt + 工作区 .agent/
 
 ---
@@ -483,7 +505,7 @@ if memory_notes:
 ## 已决议清单
 
 1. **保留角色卡**：`memories[]` + `memorySettings` 体系完整保留，不删除酒馆 UI
-2. **OpenClaw 映射**：SOUL → `soul` 字段；USER → `userProfile` 字段；MEMORY → `memoryNotes` 字段；IDENTITY → 已有字段覆盖
+2. **OpenClaw 映射**：SOUL → `soul` 字段（角色卡级）；USER → `userProfile` 字段（全局）；MEMORY → `memoryNotes` 字段（全局）；IDENTITY → 已有字段覆盖
 3. **AGENTS.md**：方案 A，复用全局 system_prompt + 工作区 .agent/AGENTS.md
 4. **日记树 FTS**：核心记忆检索方式，索引 `lover/memory/` 下递归 `.md`，每轮动态注入
 5. **mem0 可选默认关闭**：保留代码通路，用户可手动开启

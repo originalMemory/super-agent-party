@@ -1,7 +1,8 @@
 import json
 from py.get_setting import load_settings, save_settings
 
-WRITABLE_FIELDS = {"soul", "memoryNotes", "description", "personality", "systemPrompt", "mesExample"}
+WRITABLE_FIELDS = {"soul", "description", "personality", "systemPrompt", "mesExample"}
+GLOBAL_WRITABLE_FIELDS = {"userProfile", "memoryNotes"}
 
 
 async def get_character_card(fields: list = None) -> str:
@@ -26,12 +27,15 @@ async def get_character_card(fields: list = None) -> str:
         for f in fields:
             if f in cur_memory:
                 result[f] = cur_memory[f]
+            elif f in ("userProfile", "memoryNotes"):
+                result[f] = memory_settings.get(f, "")
             else:
                 result[f] = None
     else:
         result = {k: v for k, v in cur_memory.items() if k not in ("api_key",)}
 
     result["userProfile"] = memory_settings.get("userProfile", "")
+    result["memoryNotes"] = memory_settings.get("memoryNotes", "")
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -73,18 +77,29 @@ async def update_user_profile(value: str) -> str:
     }, ensure_ascii=False)
 
 
+async def update_memory_notes(value: str) -> str:
+    settings = await load_settings()
+    settings.setdefault("memorySettings", {})["memoryNotes"] = value
+    await save_settings(settings)
+    return json.dumps({
+        "success": True,
+        "field": "memoryNotes",
+        "length": len(value),
+    }, ensure_ascii=False)
+
+
 get_character_card_tool = {
     "type": "function",
     "function": {
         "name": "get_character_card",
-        "description": "读取当前角色卡的信息。可指定字段名获取特定内容，不指定则返回全部。同时返回全局用户档案（_userProfile）。",
+        "description": "读取当前角色卡的信息。可指定字段名获取特定内容，不指定则返回全部。同时返回全局用户档案和记忆笔记。",
         "parameters": {
             "type": "object",
             "properties": {
                 "fields": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "要读取的字段列表，如 ['soul', 'memoryNotes', 'description']。不传则返回全部字段。",
+                    "description": "要读取的字段列表，如 ['soul', 'description', 'userProfile', 'memoryNotes']。不传则返回全部字段。",
                 },
             },
             "required": [],
@@ -96,7 +111,7 @@ update_character_card_tool = {
     "type": "function",
     "function": {
         "name": "update_character_card",
-        "description": "修改当前角色卡的指定字段。可写字段：soul、memoryNotes、description、personality、systemPrompt、mesExample。修改后自动保存。",
+        "description": "修改当前角色卡的指定字段。可写字段：soul、description、personality、systemPrompt、mesExample。修改后自动保存。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -125,6 +140,24 @@ update_user_profile_tool = {
                 "value": {
                     "type": "string",
                     "description": "新的用户档案内容（Markdown）",
+                },
+            },
+            "required": ["value"],
+        },
+    },
+}
+
+update_memory_notes_tool = {
+    "type": "function",
+    "function": {
+        "name": "update_memory_notes",
+        "description": "修改所有角色共享的记忆笔记（memoryNotes）——长期事实与约定。修改后自动保存。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "value": {
+                    "type": "string",
+                    "description": "新的记忆笔记内容（Markdown）",
                 },
             },
             "required": ["value"],

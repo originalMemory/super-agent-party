@@ -3702,6 +3702,18 @@ function updateElement(el, rawMarkdown, formatFn) {
                             </div>
                           </el-tab-pane>
 
+                          <!-- 元层原则 (SOUL) -->
+                          <el-tab-pane name="soul" :label="t('soul')">
+                            <el-form-item>
+                              <el-input
+                                v-model="newMemory.soul"
+                                type="textarea"
+                                :rows="8"
+                                :placeholder="t('soulPlaceholder')"
+                              />
+                            </el-form-item>
+                          </el-tab-pane>
+
                           <el-tab-pane name="firstGreeting" :label="t('firstGreeting')">
                             <div
                               class="param-row"
@@ -3793,6 +3805,53 @@ function updateElement(el, rawMarkdown, formatFn) {
                         </el-button>
                       </template>
                     </el-dialog>
+                  </el-tab-pane>
+                  <!-- 用户档案与记忆索引 -->
+                  <el-tab-pane :label="t('userMemoryTab')" name="userMemory">
+                    <el-form :model="memorySettings" class="settings-form" label-position="top">
+                      <el-form-item :label="t('memoryDirPath')" class="form-item-align">
+                        <el-input
+                          v-model="memorySettings.memoryDirPath"
+                          :placeholder="t('memoryDirPathPlaceholder')"
+                          @input="autoSaveSettings"
+                          class="full-width-input"
+                        />
+                      </el-form-item>
+                      <el-form-item :label="t('memoryIndexSyncMinutes')" class="form-item-align">
+                        <el-slider
+                          v-model="memorySettings.memoryIndexSyncMinutes"
+                          :min="1"
+                          :max="60"
+                          :step="1"
+                          show-input
+                          @input="autoSaveSettings"
+                        />
+                      </el-form-item>
+                      <el-form-item :label="t('memoryNotes')" class="form-item-align">
+                        <el-input
+                          v-model="memorySettings.memoryNotes"
+                          :placeholder="t('memoryNotesPlaceholder')"
+                          type="textarea"
+                          :rows="8"
+                          @input="autoSaveSettings"
+                          class="full-width-input"
+                        />
+                      </el-form-item>
+                      <el-form-item class="form-item-align">
+                        <template #label>
+                          {{ t('userProfile') }}
+                          <el-tag size="small" type="info" style="margin-left:6px">{{ t('userProfileShared') }}</el-tag>
+                        </template>
+                        <el-input
+                          v-model="memorySettings.userProfile"
+                          :placeholder="t('userProfilePlaceholder')"
+                          type="textarea"
+                          :rows="8"
+                          @input="autoSaveSettings"
+                          class="full-width-input"
+                        />
+                      </el-form-item>
+                    </el-form>
                   </el-tab-pane>
                   <!-- 系统提示词标签页 -->
                   <el-tab-pane :label="t('addSystemPrompt')" name="prompts">

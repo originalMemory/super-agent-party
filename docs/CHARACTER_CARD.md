@@ -47,6 +47,7 @@
 | `characterBook` | 世界书（关键词 + 内容） | 关键词命中时 system 追加 |
 | `firstMes` / `alternateGreetings` | 开场白 | 前端写入对话历史 |
 | `avatar` | 头像 URL |  mainly UI（如 `getRoleAvatar`），**不**自动进 prompt |
+| `soul` | 元层原则（价值观、语调、主动性边界） | 每轮 system 追加（`## 元层原则`） |
 | `providerId` + embedding 相关 | 长期记忆 | 检索/写入 mem0 |
 | `infer` | 是否自动提炼记忆 | 控制 `m0.add(..., infer=)` |
 
@@ -112,14 +113,18 @@
 
 | 顺序 | 内容 | 条件 |
 |------|------|------|
-| 1 | 默认用户名说明 | 配置了 `userName` |
-| 2 | 世界观设定 | `characterBook` 任一关键词出现在**本条 user** 或**上一条 assistant** |
-| 3 | 角色设定 | `description` 非空 |
-| 4 | 性格设定 | `personality` 非空 |
-| 5 | 对话示例 | `mesExample` 非空 |
-| 6 | 角色 `systemPrompt` | 非空 |
-| 7 | `memorySettings.genericSystemPrompt` | 非空 |
-| 8 | 之前的相关记忆 | 角色卡配了 `providerId`，`m0.search(user_prompt)`，条数 `memoryLimit` |
+| 1 | 用户档案（`memorySettings.userProfile`） | 非空（`## 用户档案`） |
+| 2 | 元层原则（`memories[i].soul`） | 非空（`## 元层原则`） |
+| 3 | 默认用户名说明 | 配置了 `userName` |
+| 4 | 世界观设定 | `characterBook` 任一关键词出现在**本条 user** 或**上一条 assistant** |
+| 5 | 角色设定 | `description` 非空 |
+| 6 | 性格设定 | `personality` 非空 |
+| 7 | 对话示例 | `mesExample` 非空 |
+| 8 | 角色 `systemPrompt` | 非空 |
+| 9 | `memorySettings.genericSystemPrompt` | 非空 |
+| 10 | 记忆笔记（`memorySettings.memoryNotes`） | 非空，全局共享（`## 记忆笔记`） |
+| 11 | 相关回忆（FTS recall） | 日记树 FTS 检索命中时 |
+| 12 | 之前的相关记忆（mem0） | 角色卡配了 `providerId`，默认关闭 |
 
 实现位置：`server.py` 约 3629–3711 行。
 
@@ -143,10 +148,38 @@
 4. 对话中 **启用角色卡** 并选中「小樱」
 5. 桌宠若用对话页按钮：在 **工具 → 桌宠机器人** 改默认模型（与多角色形象无关）
 
+## 全局共享字段（memorySettings 级）
+
+以下字段存储在 `memorySettings` 中，所有角色卡共享，切换角色时保持不变：
+
+| 字段 | 用途 | 注入方式 |
+|------|------|----------|
+| `userProfile` | 用户档案（姓名、偏好、重要日期） | 每轮 system 追加（`## 用户档案`），注入优先级最高 |
+| `memoryNotes` | 手写长期记忆笔记（事实与约定） | 每轮 system 追加（`## 记忆笔记`），常驻全文注入 |
+| `memoryDirPath` | 日记树根目录 | 空值时默认 `{USER_DATA_DIR}/lover/memory/` |
+| `memoryIndexSyncMinutes` | FTS 索引同步间隔（分钟） | 默认 10 |
+
+`memoryNotes` 沉淀的是与**用户**相关的长期事实与约定（如生日、偏好、共同经历），而非特定角色属性，因此属全局级。
+
+## AI 工具
+
+系统向 AI 提供以下工具，让 AI 可以在对话中读写角色卡及全局配置：
+
+| 工具 | 功能 | 权限 |
+|------|------|------|
+| `get_character_card` | 读取当前角色卡字段 + userProfile + memoryNotes | 无需审批 |
+| `update_character_card` | 修改角色卡指定字段（白名单：soul/description/personality/systemPrompt/mesExample） | 需用户审批 |
+| `update_user_profile` | 修改全局用户档案 | 需用户审批 |
+| `update_memory_notes` | 修改全局记忆笔记 | 需用户审批 |
+
+使用场景：
+- AI 发现用户新事实 → 调用 `update_memory_notes` 或 `update_user_profile`
+- AI 根据反馈调整自身 → 调用 `update_character_card` 修改 `soul` / `personality`
+
 ## 与 lover / multiLovers 分支的边界
 
 - 本文描述 **SAP 通用角色卡（memories）** 通路。
-- **lover** 分支另有 `lover/` 目录、FTS、`USER.md` / `IDENTITY.md` 等 SSOT，见 `docs/LOVER_SSOT.md`；与酒馆角色卡 **路径分离**，后续 multiLovers 可能演进多角色方案，以 OpenSpec 为准。
+- **multiLovers** 分支在角色卡基础上引入 OpenClaw 式人设分层（soul / userProfile / memoryNotes），见 `docs/LOVER_SSOT.md`。
 
 ## 相关代码索引
 

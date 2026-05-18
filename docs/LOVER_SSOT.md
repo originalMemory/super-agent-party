@@ -13,7 +13,7 @@
 | **SOUL.md**（元层原则） | `memories[i].soul`（新增字段） | settings JSON |
 | **IDENTITY.md**（叙事身份） | `memories[i].description` + `personality` + `systemPrompt`（已有字段覆盖） | settings JSON |
 | **USER.md**（用户档案） | `memorySettings.userProfile`（新增字段，全局共享） | settings JSON |
-| **MEMORY.md**（长期记忆） | `memories[i].memoryNotes`（新增字段） | settings JSON |
+| **MEMORY.md**（长期记忆） | `memorySettings.memoryNotes`（新增字段，全局共享） | settings JSON |
 | **AGENTS.md**（操作约束） | 全局 `system_prompt` + 工作区 `.agent/AGENTS.md`（已有通路） | 现有路径不变 |
 
 ## 字段职责
@@ -27,8 +27,8 @@
 | **`mesExample`** | 角色卡级 | 对话示例（已有） | ⑦ |
 | **`systemPrompt`** | 角色卡级 | 额外系统提示（已有） | ⑧ |
 | **`genericSystemPrompt`** | 全局（memorySettings） | 通用系统提示（已有） | ⑨ |
-| **`memoryNotes`** | 角色卡级 | 手写长期记忆，与 mem0 互补 | ⑩ genericSystemPrompt 之后 |
-| **mem0 recall** | 角色卡级 | 自动向量记忆（已有） | ⑪ 最后 |
+| **`memoryNotes`** | 全局（memorySettings） | 手写长期记忆，所有角色共享，与 mem0 互补 | ⑩ genericSystemPrompt 之后 |
+| **mem0 recall** | 角色卡级 | 自动向量记忆（已有） | ⑫ 最后 |
 
 ## AGENTS.md 处理
 
@@ -45,7 +45,7 @@
 |------|------|--------|----------|------|
 | `soul` | 角色卡字段 | 用户 | 每轮 bootstrap 常驻 | 不进 FTS |
 | `userProfile` | memorySettings 字段 | 用户 | 每轮 bootstrap 常驻 | 不进 FTS |
-| `memoryNotes` | 角色卡字段 | 用户 | 每轮 bootstrap 常驻 | **不进 FTS**——内容量可控，全文注入 |
+| `memoryNotes` | memorySettings 字段（全局共享） | 用户 / AI | 每轮 bootstrap 常驻 | **不进 FTS**——内容量可控，全文注入 |
 | 日记树 FTS | SQLite FTS5 | 摘要回流 / 用户手写 | 每轮动态检索 | **核心记忆检索方式** |
 | mem0 recall | 向量检索 | AI 自动提炼 | 每轮动态 | **默认关闭**，用户可手动开启 |
 
@@ -78,11 +78,12 @@
 
 | 工具 | 功能 | 权限 |
 |------|------|------|
-| `get_character_card` | 读取当前角色卡字段 + userProfile | 需用户审批 |
-| `update_character_card` | 修改角色卡指定字段（白名单限制） | 需用户审批 |
+| `get_character_card` | 读取当前角色卡字段 + userProfile + memoryNotes | 无需审批 |
+| `update_character_card` | 修改角色卡指定字段（白名单：soul/description/personality/systemPrompt/mesExample） | 需用户审批 |
 | `update_user_profile` | 修改全局用户档案 | 需用户审批 |
+| `update_memory_notes` | 修改全局记忆笔记 | 需用户审批 |
 
-使用场景：AI 发现用户新事实 → 更新 memoryNotes；AI 根据反馈调整 soul / personality。
+使用场景：AI 发现用户新事实 → 更新 memoryNotes（全局）；AI 根据反馈调整 soul / personality。
 
 ## 兼容性
 

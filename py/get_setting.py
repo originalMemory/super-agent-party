@@ -486,12 +486,13 @@ async def load_settings():
                 merge_defaults(defaults, user_settings)
 
                 # memories[] 是数组，merge_defaults 不会补全每项的新字段
-                _MEMORY_FIELD_DEFAULTS = {"soul": "", "memoryNotes": ""}
+                _MEMORY_FIELD_DEFAULTS = {"soul": ""}
                 for mem in user_settings.get("memories", []):
                     for k, v in _MEMORY_FIELD_DEFAULTS.items():
                         if k not in mem:
                             mem[k] = v
                             has_changes[0] = True
+
 
                 if has_changes[0]:
                     asyncio.create_task(save_settings(user_settings))

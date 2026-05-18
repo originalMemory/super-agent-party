@@ -1,23 +1,23 @@
 ## 1. 数据模型扩展
 
-- [x] 1.1 `config/settings_template.json`：`memories[]` 项新增 `soul`（默认 `""`）、`memoryNotes`（默认 `""`）；`memorySettings` 新增 `userProfile`（默认 `""`）、`memoryDirPath`（默认 `""`）、`memoryIndexSyncMinutes`（默认 `10`）
-- [x] 1.2 `static/js/vue_data.js`：`memories[]` 初始结构新增 `soul`、`memoryNotes`；`memorySettings` 新增 `userProfile`、`memoryDirPath`、`memoryIndexSyncMinutes`
-- [x] 1.3 `static/js/vue_methods.js`：`addMemory` / `resetNewMemory` / `copyExistingMemoryData` 初始化 `soul`、`memoryNotes`
-- [x] 1.4 `py/get_setting.py`：`load_settings` 加载后对旧 `memories[]` 补全 `soul`、`memoryNotes` 默认值（向后兼容）
+- [x] 1.1 `config/settings_template.json`：`memories[]` 项新增 `soul`（默认 `""`）；`memorySettings` 新增 `userProfile`（默认 `""`）、`memoryNotes`（默认 `""`）、`memoryDirPath`（默认 `""`）、`memoryIndexSyncMinutes`（默认 `10`）
+- [x] 1.2 `static/js/vue_data.js`：`memories[]` 初始结构新增 `soul`；`memorySettings` 新增 `userProfile`、`memoryNotes`、`memoryDirPath`、`memoryIndexSyncMinutes`
+- [x] 1.3 `static/js/vue_methods.js`：`addMemory` / `resetNewMemory` / `copyExistingMemoryData` 初始化 `soul`
+- [x] 1.4 `py/get_setting.py`：`load_settings` 加载后对旧 `memories[]` 补全 `soul` 默认值（向后兼容）
 
 ## 2. System Prompt 注入链扩展
 
 - [x] 2.1 `server.py` `generate_stream_response`：在现有 `cur_memory` 注入链**前**插入 `userProfile`（`## 用户档案`）、`soul`（`## 元层原则`）注入
-- [x] 2.2 `server.py` `generate_stream_response`：在 `genericSystemPrompt` 之后插入 `memoryNotes`（`## 记忆笔记`）常驻注入
+- [x] 2.2 `server.py` `generate_stream_response`：在 `genericSystemPrompt` 之后插入 `memoryNotes`（`## 记忆笔记`，从 `memorySettings` 读取）常驻注入
 - [x] 2.3 `server.py` `generate_stream_response`：在 `memoryNotes` 之后预留 FTS recall 注入点（TODO 注释）
 - [x] 2.4 注入格式：使用 Markdown 标题隔离，`{{user}}` / `{{char}}` 占位符替换，空值跳过
 - [x] 2.5 mem0 默认关闭：代码已为"未配置 providerId 则不启用"，无需额外修改
 
 ## 3. AI 工具：角色卡查看与修改
 
-- [x] 3.1 新建 `py/character_card_tools.py`：实现 `get_character_card`、`update_character_card`、`update_user_profile` 三个工具函数 + tool schema
-- [x] 3.2 `server.py` `dispatch_tool`：在 `_TOOL_HOOKS` 中注册三个工具；`update_character_card`、`update_user_profile` 加入 `SENSITIVE_TOOLS`
-- [x] 3.3 `update_character_card` 可写字段白名单：`soul`、`memoryNotes`、`description`、`personality`、`systemPrompt`、`mesExample`
+- [x] 3.1 新建 `py/character_card_tools.py`：实现 `get_character_card`、`update_character_card`、`update_user_profile`、`update_memory_notes` 四个工具函数 + tool schema
+- [x] 3.2 `server.py` `dispatch_tool`：在 `_TOOL_HOOKS` 中注册四个工具；`update_character_card`、`update_user_profile`、`update_memory_notes` 加入 `SENSITIVE_TOOLS`
+- [x] 3.3 `update_character_card` 可写字段白名单：`soul`、`description`、`personality`、`systemPrompt`、`mesExample`（`memoryNotes` 已移至全局 `update_memory_notes` 工具）
 - [x] 3.4 工具调用后通过 `save_settings()` 持久化 + `ws_manager.broadcast_settings_update()` 通知前端；角色卡启用时自动注册 tool schema 到 tools 列表
 
 ## 4. 日记树 FTS 记忆检索
@@ -32,11 +32,11 @@
 
 ## 5. 前端 UI
 
-- [ ] 5.1 `static/index.html`：角色卡编辑表单新增 **SOUL / 元层原则** 编辑区域（Markdown textarea）
-- [ ] 5.2 `static/index.html`：角色卡编辑表单新增 **记忆笔记** 编辑区域（Markdown textarea）
-- [ ] 5.3 `static/index.html`：`memorySettings` 编辑区域新增 **用户档案** 编辑区域（Markdown textarea），标注"所有角色共享"
-- [ ] 5.4 `static/index.html`：`memorySettings` 编辑区域新增 **日记树目录** 配置（路径输入框 + 浏览按钮，对应 `memoryDirPath`）和 **FTS 同步间隔** 配置（数字输入，对应 `memoryIndexSyncMinutes`）
-- [ ] 5.5 i18n：`static/locales/*.js` 新增 `soul`、`memoryNotes`、`userProfile`、FTS 相关翻译键
+- [x] 5.1 `static/index.html`：角色卡编辑表单新增 **SOUL / 元层原则** 编辑区域（Markdown textarea）
+- [x] 5.2 `static/index.html`：新增「用户档案与记忆」独立 Tab（与角色卡配置同级），包含 **日记树目录**、**FTS 同步间隔**、**记忆笔记**、**用户档案** 四个编辑区域
+- [x] 5.3 记忆笔记和用户档案为全局共享（`memorySettings` 级），与角色卡无关
+- [x] 5.4 用户档案放最下方（内容可能较长），记忆笔记在日记树配置之后
+- [x] 5.5 i18n：`static/locales/*.js` 新增 `soul`、`memoryNotes`、`userProfile`、FTS 相关翻译键
 
 ## 6. 会话数据模型
 
@@ -67,8 +67,8 @@
 
 ## 10. 文档
 
-- [ ] 10.1 更新 `docs/CHARACTER_CARD.md`：补充 `soul`、`memoryNotes`、`userProfile` 字段说明 + AI 工具说明
-- [ ] 10.2 更新 `docs/LOVER_SSOT.md`：与新方案对齐（角色卡扩展 + FTS 日记树 + AI 工具）
+- [x] 10.1 更新 `docs/CHARACTER_CARD.md`：补充 `soul`、`userProfile`、`memoryNotes`（全局）字段说明 + AI 工具说明
+- [x] 10.2 更新 `docs/LOVER_SSOT.md`：与新方案对齐（memoryNotes 全局化 + FTS 日记树 + AI 工具）
 
 ## 11. 可选增强（backlog）
 
@@ -79,7 +79,7 @@
 
 ## 冒烟测试
 
-- [ ] S.1 新增 soul + memoryNotes 后连续两轮：system prompt 无重复膨胀
+- [ ] S.1 新增 soul + memoryNotes（全局）后连续两轮：system prompt 无重复膨胀
 - [ ] S.2 userProfile 配置后切换角色卡：用户档案保持不变
 - [ ] S.3 老角色卡（无新字段）：行为与现有版本一致
 - [ ] S.4 soul / memoryNotes 中 `{{user}}` / `{{char}}` 占位符正确替换
@@ -87,7 +87,7 @@
 - [ ] S.6 FTS 分词降级：simple 不可用时 trigram/unicode61 正常工作
 - [ ] S.7 mem0 默认关闭：未配置 providerId 时不触发向量检索
 - [ ] S.8 AI 工具 `get_character_card`：返回当前角色卡字段 + userProfile
-- [ ] S.9 AI 工具 `update_character_card`：修改 memoryNotes 后 save_settings 生效；修改 name 被拒绝
+- [ ] S.9 AI 工具 `update_memory_notes`：修改全局 memoryNotes 后 save_settings 生效；`update_character_card` 修改 name 被拒绝
 - [ ] S.10 自定义日记树路径：配置 `memoryDirPath` 后 FTS 索引切换到新目录
 - [ ] S.11 主会话归档与重置；归档会话只读 + 「拉回主会话」可用
 - [ ] S.12 开发会话归档弹窗 → 落盘摘要 → FTS 收录 → 对话历史删除
