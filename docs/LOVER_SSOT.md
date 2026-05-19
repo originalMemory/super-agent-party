@@ -18,17 +18,19 @@
 
 ## 字段职责
 
-| 字段 | 级别 | 职责 | 注入位置 |
+| 字段 | 来源 | 职责 | 注入位置 |
 |------|------|------|----------|
-| **`userProfile`** | 全局（memorySettings） | 用户姓名/偏好/重要日期，所有角色共享 | ① 最前 |
-| **`soul`** | 角色卡级 | 元层原则：价值观、语调、主动性边界 | ② userProfile 之后 |
+| **USER.md** | `lover/USER.md` 文件 | 用户姓名/偏好/重要日期，所有角色共享 | ① 最前 |
+| **SOUL.md** | `lover/SOUL.md` 文件 | 元层原则：价值观、语调、主动性边界 | ② USER.md 之后 |
 | **`description`** | 角色卡级 | 角色设定（已有） | ⑤ |
 | **`personality`** | 角色卡级 | 性格设定（已有） | ⑥ |
 | **`mesExample`** | 角色卡级 | 对话示例（已有） | ⑦ |
 | **`systemPrompt`** | 角色卡级 | 额外系统提示（已有） | ⑧ |
 | **`genericSystemPrompt`** | 全局（memorySettings） | 通用系统提示（已有） | ⑨ |
-| **`memoryNotes`** | 全局（memorySettings） | 手写长期记忆，所有角色共享，与 mem0 互补 | ⑩ genericSystemPrompt 之后 |
+| **MEMORY.md** | `lover/MEMORY.md` 文件 | 手写长期记忆，所有角色共享，与 mem0 互补 | ⑩ genericSystemPrompt 之后 |
 | **mem0 recall** | 角色卡级 | 自动向量记忆（已有） | ⑫ 最后 |
+
+> 所有 `.md` 文件来源优先于配置字段（`soul`/`userProfile`/`memoryNotes`），配置字段仅作 fallback。
 
 ## AGENTS.md 处理
 
@@ -43,9 +45,9 @@
 
 | 层次 | 机制 | 写入方 | 注入时机 | 说明 |
 |------|------|--------|----------|------|
-| `soul` | 角色卡字段 | 用户 | 每轮 bootstrap 常驻 | 不进 FTS |
-| `userProfile` | memorySettings 字段 | 用户 | 每轮 bootstrap 常驻 | 不进 FTS |
-| `memoryNotes` | memorySettings 字段（全局共享） | 用户 / AI | 每轮 bootstrap 常驻 | **不进 FTS**——内容量可控，全文注入 |
+| SOUL.md | `lover/SOUL.md` 文件 | 用户 | 每轮 bootstrap 常驻 | 不进 FTS |
+| USER.md | `lover/USER.md` 文件 | 用户 | 每轮 bootstrap 常驻 | 不进 FTS |
+| MEMORY.md | `lover/MEMORY.md` 文件 | 用户 / AI | 每轮 bootstrap 常驻 | **不进 FTS**——内容量可控，全文注入 |
 | 日记树 FTS | SQLite FTS5 | 摘要回流 / 用户手写 | 每轮动态检索 | **核心记忆检索方式** |
 | mem0 recall | 向量检索 | AI 自动提炼 | 每轮动态 | **默认关闭**，用户可手动开启 |
 

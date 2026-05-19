@@ -430,12 +430,9 @@ if memory_notes:
 
 ## 会话启动序列
 
-新建或重置会话时，自动注入启动提示词：
+**8.1 启动指令（已取消）**：不在用户消息末尾追加「请主动问候」类指令；重置主会话使用角色卡 `firstMes` / `randomGreetings()` 静态开场白，不调 LLM。
 
-1. 后端检测 `is_new_session = True`
-2. 在本次请求的用户消息末尾追加启动指令（不存入历史）
-3. 可选注入最近日记摘要作为启动记忆前言（`dailyMemoryDays`=2，`maxTotalChars`=2800）
-4. 模型用 `soul` 定义的 persona 主动问候用户
+**8.2 日记概要（保留）**：会话中**首条 user 消息**时，向 system 注入近 7 天日记概要（`py/lover_diary_summary.py` 扫描 `memoryDirPath` 下 `.md`，提取 frontmatter `概要` + `心情`；缺失时降级 `✨ 今日高光`）。
 
 ---
 
@@ -526,11 +523,11 @@ if memory_notes:
 ## 已决议清单
 
 1. **保留角色卡**：`memories[]` + `memorySettings` 体系完整保留，不删除酒馆 UI
-2. **OpenClaw 映射**：SOUL → `soul` 字段（角色卡级）；USER → `userProfile` 字段（全局）；MEMORY → `memoryNotes` 字段（全局）；IDENTITY → 已有字段覆盖
+2. **OpenClaw 映射（统一用文件）**：SOUL → `lover/SOUL.md`；USER → `lover/USER.md`；MEMORY → `lover/MEMORY.md`；IDENTITY → 角色卡已有字段（description/personality 等）。注入链和 AI 工具直接读写 `lover/` 目录下的 `.md` 文件，配置字段（`soul`/`userProfile`/`memoryNotes`）仅作 fallback
 3. **AGENTS.md**：方案 A，复用全局 system_prompt + 工作区 .agent/AGENTS.md
 4. **日记树 FTS**：核心记忆检索方式，索引 `lover/memory/` 下递归 `.md`，每轮动态注入
 5. **mem0 可选默认关闭**：保留代码通路，用户可手动开启
-6. **注入顺序**：userProfile → soul → 现有链 → memoryNotes → FTS recall → mem0（可选）
+6. **注入顺序**：USER.md → SOUL.md → 现有链（角色卡 description/personality 等） → MEMORY.md → FTS recall → mem0（可选）
 7. **兼容性**：所有新字段默认空值，向后兼容
 8. **会话模型**：固定两组结构（主分组 + 归档分组），沿用 lover 设计；新增 `original_kind` 记录归档前原始类型
 9. **不新增 workspace_path**：所有会话统一使用全局 `CLISettings.cc_path`，无需会话级工作区绑定

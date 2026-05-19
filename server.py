@@ -3739,16 +3739,27 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
             _user_name = settings["memorySettings"].get("userName", "")
             _char_name = cur_memory["name"] if cur_memory else ""
 
-            _user_profile = settings["memorySettings"].get("userProfile", "")
+            from py.lover_memory_fts import lover_data_root as _lover_root
+            _lover_dir = _lover_root()
+
+            def _read_lover_file(name: str) -> str:
+                p = _lover_dir / name
+                if p.is_file():
+                    try:
+                        return p.read_text(encoding="utf-8", errors="replace").strip()
+                    except Exception:
+                        pass
+                return ""
+
+            _user_profile = _read_lover_file("USER.md") or settings["memorySettings"].get("userProfile", "")
             if _user_profile:
                 _user_profile = _user_profile.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
                 content_append(request.messages, 'system', "\n## 用户档案\n" + _user_profile + "\n")
 
-            if cur_memory:
-                _soul = cur_memory.get("soul", "")
-                if _soul:
-                    _soul = _soul.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
-                    content_append(request.messages, 'system', "\n## 元层原则\n" + _soul + "\n")
+            _soul = _read_lover_file("SOUL.md") or (cur_memory.get("soul", "") if cur_memory else "")
+            if _soul:
+                _soul = _soul.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
+                content_append(request.messages, 'system', "\n## 元层原则\n" + _soul + "\n")
 
             if settings["memorySettings"]["userName"]:
                 print("添加用户名：\n\n" + settings["memorySettings"]["userName"] + "\n\n用户名结束\n\n")
@@ -3815,7 +3826,7 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                 # 替换cur_memory["systemPrompt"]中的{{char}}为cur_memory["name"]
                 settings["memorySettings"]["genericSystemPrompt"] = settings["memorySettings"]["genericSystemPrompt"].replace("{{char}}", cur_memory["name"])
                 content_append(request.messages, 'system', "\n\n" + settings["memorySettings"]["genericSystemPrompt"] + "\n\n")
-            _memory_notes = settings["memorySettings"].get("memoryNotes", "")
+            _memory_notes = _read_lover_file("MEMORY.md") or settings["memorySettings"].get("memoryNotes", "")
             if _memory_notes:
                 _memory_notes = _memory_notes.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
                 content_append(request.messages, 'system', "\n## 记忆笔记\n" + _memory_notes + "\n")
@@ -3835,6 +3846,25 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
                             content_append(request.messages, 'system', _fts_block)
                 except Exception as _fts_err:
                     print(f"[FTS] 检索异常: {_fts_err}")
+
+            # 新会话首轮：注入近期日记概要（frontmatter 概要/心情，不含启动指令）
+            if not request.is_sub_agent:
+                _user_msgs = [m for m in request.messages if m.get("role") == "user"]
+                if len(_user_msgs) <= 1:
+                    try:
+                        from py.lover_diary_summary import build_recent_diary_summary
+                        from py.lover_memory_fts import workspace_root_from_settings as _diary_ws
+                        _diary_root = _diary_ws(settings)
+                        if _diary_root and _diary_root.is_dir():
+                            _diary_days = 7
+                            _diary_block = await asyncio.to_thread(
+                                build_recent_diary_summary, _diary_root, _diary_days
+                            )
+                            if _diary_block:
+                                content_append(request.messages, 'system', "\n" + _diary_block)
+                                logger.info("[日记概要] 已注入近 %d 天日记概要", _diary_days)
+                    except Exception as _diary_err:
+                        logger.warning("[日记概要] 注入失败: %s", _diary_err)
 
             if m0 and not request.is_sub_agent:
                 memoryLimit = settings["memorySettings"]["memoryLimit"]

@@ -681,6 +681,25 @@ let vue_methods = {
       await this.clearMessages(targetGroupId);
     },
 
+    _applyMessageBrieflyFlags() {
+      if (this.allBriefly) {
+        this.messages.forEach((m) => { m.briefly = true; });
+      } else {
+        this.messages.forEach((m) => { m.briefly = false; });
+      }
+    },
+    /** 清空会话 UI：不把完整 system_prompt 写入 messages，与 loadConversation 加载空历史一致 */
+    _initSessionAfterClear(conv) {
+      this.messages = [];
+      if (conv) {
+        conv.messages = this.messages;
+        conv.timestamp = Date.now();
+        conv.fileLinks = [];
+      }
+      this.fileLinks = [];
+      this.randomGreetings();
+      this._applyMessageBrieflyFlags();
+    },
     // ── Lover 会话管理 ──────────────────────────────────────────────
     openCreateDevSessionDialog() {
       this.newDevSessionForm = { title: '' };
@@ -746,16 +765,18 @@ let vue_methods = {
       }
 
       if (success) {
-        if (conv) {
+        if (this.conversationId === convId) {
+          this._initSessionAfterClear(conv);
+          this.requestScrollToBottom();
+        } else if (conv) {
           conv.messages = [];
           conv.timestamp = Date.now();
+          conv.fileLinks = [];
         }
-        if (this.conversationId === convId) {
-          this.messages = [{ id: Date.now() + Math.random(), role: 'system', content: this.system_prompt }];
-          this.conversationId = null;
-          this.fileLinks = [];
-          this.randomGreetings();
-          this.requestScrollToBottom();
+        try {
+          await this.saveConversations();
+        } catch (e) {
+          console.warn('[lover] save conversations after archive failed:', e);
         }
         showNotification(this.t('mainSessionArchived'), 'success');
       }
@@ -791,17 +812,20 @@ let vue_methods = {
       }
 
       const conv = this.conversations.find(c => c.id === convId);
-      if (conv) {
+      if (this.conversationId === convId) {
+        this.conversationId = convId;
+        this._initSessionAfterClear(conv);
+        this.requestScrollToBottom();
+      } else if (conv) {
         conv.messages = [];
         conv.timestamp = Date.now();
+        conv.fileLinks = [];
       }
 
-      if (this.conversationId === convId) {
-        this.messages = [{ id: Date.now() + Math.random(), role: 'system', content: this.system_prompt }];
-        this.conversationId = null;
-        this.fileLinks = [];
-        this.randomGreetings();
-        this.requestScrollToBottom();
+      try {
+        await this.saveConversations();
+      } catch (e) {
+        console.warn('[lover] save conversations after reset failed:', e);
       }
 
       this.showResetMainSessionDialog = false;
@@ -1202,15 +1226,7 @@ let vue_methods = {
         this.system_prompt = " ";
         this.messages = [{ id: Date.now() + Math.random(), role: 'system', content: this.system_prompt }];
       }
-      if(this.allBriefly){
-        this.messages.forEach((m) => {
-          m.briefly = true;
-        })
-      }else{
-        this.messages.forEach((m) => {
-          m.briefly = false;
-        })
-      }
+      this._applyMessageBrieflyFlags();
       this.inAutoMode = false; // 重置自动模式状态
       this.requestScrollToBottom();
       this.sendMessagesToExtension(); // 发送消息到插件
@@ -7974,8 +7990,14 @@ handleCreateSlackSeparator(val) {
         if (this.messages.length > 1 && this.messages[1].role === 'assistant') {
           this.messages[1].content = greetings[randomIndex];
           this.messages[1].pure_content = greetings[randomIndex];
-        } else {
+        } else if (this.messages.length > 0 && this.messages[0].role === 'system') {
           this.messages.splice(1, 0, {
+            role: 'assistant',
+            content: greetings[randomIndex],
+            pure_content: greetings[randomIndex],
+          });
+        } else {
+          this.messages.push({
             role: 'assistant',
             content: greetings[randomIndex],
             pure_content: greetings[randomIndex],
