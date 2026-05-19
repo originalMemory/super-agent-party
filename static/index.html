@@ -983,12 +983,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                 
                 <!-- 按钮并排且紧凑 -->
                 <div class="history-quick-tools">
-                  <!-- PR功能：新建分组按钮 -->
-                   <el-tooltip :content="t('newGroup')" placement="top">
-                    <el-button @click="createConversationGroup()" circle size="small" class="quick-tool-btn" :title="t('newGroup')">
-                      <i class="fa-solid fa-folder-plus"></i>
-                    </el-button>
-                  </el-tooltip>
                   <el-tooltip :content="t('keepLastWeek')" placement="top">
                     <el-button @click="keepLastWeek" circle size="small" class="quick-tool-btn" :title="t('keepLastWeek')">
                       <i class="fa-solid fa-calendar-week"></i>
@@ -1012,50 +1006,18 @@ function updateElement(el, rawMarkdown, formatFn) {
                        :class="{ active: group.id === activeConversationGroupId }" 
                        @click="setActiveConversationGroup(group.id)"
                        style="background-color: var(--el-fill-color-light); margin-bottom: 2px;">
-                    <!-- 文件夹图标 -->
-                    <i class="fa-solid fa-folder-open item-icon" style="color: #E6A23C; font-size: 14px;"></i>
+                    <i v-if="group.id === 'archive'" class="fa-solid fa-box-archive item-icon" style="color: #909399; font-size: 14px;"></i>
+                    <i v-else class="fa-solid fa-folder-open item-icon" style="color: #E6A23C; font-size: 14px;"></i>
                     
-                    <!-- 【修改点1】：加 flex: 1 撑开，并加 padding-right 防止文字遮盖按钮 -->
                     <span class="item-title" style="font-weight: bold; font-size: 13px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 15px;">
-                      {{ group.name }} ({{ group.conversations.length }})
+                      {{ group.id === 'default' ? t('defaultConversationGroup') : (group.id === 'archive' ? t('archiveConversationGroup') : group.name) }} ({{ group.conversations.length }})
                     </span>
-                    <!-- 【修改点2】：操作区强行横向排列，重置按钮原有的 absolute 定位 -->
                     <div class="group-actions" style="display: flex; align-items: center; flex-shrink: 0;" @click.stop>
-                      <el-dropdown trigger="click" placement="bottom-end" @click.stop>
-                        <!-- 这个按钮现在对所有组（包括默认组）都可见 -->
-                        <el-button class="item-delete-btn" circle style="position: relative; right: auto; top: auto; transform: none; margin-right: 4px; display: flex; align-items: center; justify-content: center;">
-                          <i class="fa-solid fa-ellipsis"></i>
+                      <el-tooltip v-if="group.id === 'default'" :content="t('newDevSession')" placement="top">
+                        <el-button class="item-delete-btn" circle style="position: relative; right: auto; top: auto; transform: none; display: flex; align-items: center; justify-content: center; margin-right: 2px;" @click.stop="openCreateDevSessionDialog()">
+                          <i class="fa-solid fa-code-branch" style="font-size: 11px;"></i>
                         </el-button>
-                        
-                        <template #dropdown>
-                          <el-dropdown-menu>
-                            <!-- 1. 重命名：仅限自定义分组 -->
-                            <el-dropdown-item 
-                              v-if="group.id !== 'default'" 
-                              @click="openRenameConversationGroupDialog(group)">
-                              <i class="fa-solid fa-pen-to-square" style="margin-right: 8px;"></i>{{ t('rename') }}
-                            </el-dropdown-item>
-
-                            <!-- 2. 清空组内对话：所有分组都适用 ✨ -->
-                            <el-dropdown-item 
-                              @click="clearConversationGroupChats(group.id)">
-                              <span style="color: var(--el-color-warning);">
-                                <i class="fa-solid fa-eraser" style="margin-right: 8px;"></i>{{ t('clearGroupChats') }}
-                              </span>
-                            </el-dropdown-item>
-
-                            <!-- 3. 删除分组：仅限自定义分组 -->
-                            <el-dropdown-item 
-                              v-if="group.id !== 'default'" 
-                              divided 
-                              @click="openDeleteGroupDialog(group)">
-                              <span style="color: var(--el-color-danger);">
-                                <i class="fa-solid fa-trash-can" style="margin-right: 8px;"></i>{{ t('delete') }}
-                              </span>
-                            </el-dropdown-item>
-                          </el-dropdown-menu>
-                        </template>
-                      </el-dropdown>
+                      </el-tooltip>
                       <el-button class="item-delete-btn" circle style="position: relative; right: auto; top: auto; transform: none; display: flex; align-items: center; justify-content: center;" @click.stop="toggleConversationGroupCollapsed(group.id)">
                         <i :class="isConversationGroupCollapsed(group.id) ? 'fa-solid fa-chevron-right' : 'fa-solid fa-chevron-down'"></i>
                       </el-button>
@@ -1069,45 +1031,62 @@ function updateElement(el, rawMarkdown, formatFn) {
                           class="history-item-row" 
                           :class="{ active: currentConversationId === conv.id || conversationId === conv.id }" 
                           @click="loadConversation(conv.id)"
-                          style="padding-left: 24px;"> <!-- 缩进体现层级 -->
+                          style="padding-left: 24px;">
                         
-                        <i class="fa-regular fa-comment item-icon"></i>
+                        <i v-if="conv.kind === 'main'" class="fa-solid fa-house item-icon" style="color: var(--el-color-primary);"></i>
+                        <i v-else-if="conv.kind === 'dev'" class="fa-solid fa-code-branch item-icon" style="color: var(--el-color-success);"></i>
+                        <i v-else-if="group.id === 'archive' && conv.original_kind === 'main'" class="fa-solid fa-house item-icon" style="color: var(--el-color-primary); opacity: 0.45;"></i>
+                        <i v-else-if="group.id === 'archive' && conv.original_kind === 'dev'" class="fa-solid fa-code-branch item-icon" style="color: var(--el-color-success); opacity: 0.45;"></i>
+                        <i v-else-if="group.id === 'archive'" class="fa-solid fa-box-archive item-icon" style="opacity: 0.6;"></i>
+                        <i v-else class="fa-regular fa-comment item-icon"></i>
                         
-                        <!-- 【修改点3】：右侧增加 padding-right: 35px 留出操作按钮的空间 -->
                         <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; justify-content: center; padding-right: 35px;">
-                          <span class="item-title" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ conv.title || t('untitled') }}</span>
+                          <span class="item-title" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            {{ conv.kind === 'main' && !conv.title ? t('mainSession') : (conv.title || t('untitled')) }}
+                          </span>
                           <span style="font-size: 10px; opacity: 0.6; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                             {{ formatConversationTime ? formatConversationTime(conv.timestamp) : '' }} 
                             <span v-if="getConversationPreview"> - {{ getConversationPreview(conv) }}</span>
                           </span>
                         </div>
                         
-                        <!-- 【修改点4】：外层用绝对定位居中，内部取消按钮自带的绝对定位以修复高度塌陷 -->
                         <div class="item-actions" @click.stop style="position: absolute; right: 8px; top: 0; bottom: 0; display: flex; align-items: center;">
-                          <el-dropdown trigger="click" placement="bottom-end" @click.stop>
+                          <!-- 归档分组：只读标记 -->
+                          <span v-if="group.id === 'archive'" style="font-size: 10px; opacity: 0.4; padding-right: 4px;">{{ t('readOnly') }}</span>
+
+                          <!-- 主分组会话：操作菜单 -->
+                          <el-dropdown v-else trigger="click" placement="bottom-end" @click.stop>
                             <el-button class="item-delete-btn" circle style="position: static; transform: none; display: flex; align-items: center; justify-content: center; margin: 0;">
                               <i class="fa-solid fa-ellipsis"></i>
                             </el-button>
                             <template #dropdown>
                               <el-dropdown-menu>
-                                <el-dropdown-item @click="openRenameConversationDialog(conv)">{{ t('rename') }}</el-dropdown-item>
-                                <!-- PR功能：移动到分组 -->
-                                <el-dropdown placement="right-start" trigger="hover">
-                                  <div class="el-dropdown-menu__item" style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span>{{ t('moveToGroup') }}</span>
-                                    <i class="fa-solid fa-angle-right" style="margin-left: 8px;"></i>
-                                  </div>
-                                  <template #dropdown>
-                                    <el-dropdown-menu>
-                                      <el-dropdown-item v-for="moveGroup in conversationGroups" :key="moveGroup.id" @click="moveConversationToGroup(conv.id, moveGroup.id)">
-                                        {{ moveGroup.name }}
-                                      </el-dropdown-item>
-                                    </el-dropdown-menu>
-                                  </template>
-                                </el-dropdown>
-                                <el-dropdown-item divided @click="confirmDeleteConversation(conv.id)">
-                                  <span style="color: var(--el-color-danger);">{{ t('delete') }}</span>
-                                </el-dropdown-item>
+                                <!-- 主会话：重置 + 归档 -->
+                                <template v-if="conv.kind === 'main'">
+                                  <el-dropdown-item @click="openResetMainSessionDialog(conv.id)">
+                                    <i class="fa-solid fa-rotate-left" style="margin-right: 8px;"></i>{{ t('resetMainSession') }}
+                                  </el-dropdown-item>
+                                  <el-dropdown-item @click="openArchiveMainSessionDialog(conv.id)">
+                                    <i class="fa-solid fa-box-archive" style="margin-right: 8px;"></i>{{ t('archiveMainSession') }}
+                                  </el-dropdown-item>
+                                </template>
+                                <!-- 开发会话：重命名 + 归档 + 删除 -->
+                                <template v-else-if="conv.kind === 'dev'">
+                                  <el-dropdown-item @click="openRenameConversationDialog(conv)">{{ t('rename') }}</el-dropdown-item>
+                                  <el-dropdown-item @click="openArchiveDevSessionDialog(conv.id)">
+                                    <i class="fa-solid fa-box-archive" style="margin-right: 8px;"></i>{{ t('archiveDevSession') }}
+                                  </el-dropdown-item>
+                                  <el-dropdown-item divided @click="confirmDeleteConversation(conv.id)">
+                                    <span style="color: var(--el-color-danger);">{{ t('delete') }}</span>
+                                  </el-dropdown-item>
+                                </template>
+                                <!-- 普通会话（旧数据兼容） -->
+                                <template v-else>
+                                  <el-dropdown-item @click="openRenameConversationDialog(conv)">{{ t('rename') }}</el-dropdown-item>
+                                  <el-dropdown-item divided @click="confirmDeleteConversation(conv.id)">
+                                    <span style="color: var(--el-color-danger);">{{ t('delete') }}</span>
+                                  </el-dropdown-item>
+                                </template>
                               </el-dropdown-menu>
                             </template>
                           </el-dropdown>
@@ -1421,7 +1400,14 @@ function updateElement(el, rawMarkdown, formatFn) {
                       </el-tooltip>
 
                     </div>
-                <div class="input-container" v-if="!isCapsuleMode">
+
+                <!-- 归档会话只读提示（替代输入框） -->
+                <div v-if="isArchiveConversation && !isCapsuleMode" class="archive-input-placeholder" style="display:flex;align-items:center;justify-content:center;padding:12px 16px;opacity:0.6;">
+                  <i class="fa-solid fa-lock" style="margin-right:8px;opacity:0.5;"></i>
+                  <span>{{ t('archiveSessionReadonly') }}</span>
+                </div>
+
+                <div class="input-container" v-if="!isCapsuleMode && !isArchiveConversation">
                   
                   <!-- ✨✨✨ 新增：统一的外层包裹器 ✨✨✨ -->
                   <!-- tabindex="-1" 是为了让 focus-within 生效更稳定 -->
@@ -3001,30 +2987,93 @@ function updateElement(el, rawMarkdown, formatFn) {
       </div>
         </el-dialog>
 
+        <!-- 新建开发会话对话框 -->
         <el-dialog
           append-to-body
-          v-model="showConversationGroupDialog"
-          :title="conversationGroupDialogMode === 'create' ? t('createGroup') : t('renameGroup')"
+          v-model="showCreateDevSessionDialog"
+          :title="t('newDevSession')"
           width="420px"
         >
           <el-form label-position="top">
-            <el-form-item :label="t('groupNamePlaceholder')">
+            <el-form-item :label="t('devSessionTitle')">
               <el-input
-                v-model="conversationGroupForm.name"
-                :placeholder="t('groupNamePlaceholder')"
-                @keyup.enter="submitConversationGroupDialog"
+                v-model="newDevSessionForm.title"
+                :placeholder="t('devSessionTitlePlaceholder')"
+                @keyup.enter="createDevConversation"
               ></el-input>
-            </el-form-item>
-            <el-form-item :label="t('groupMemoryEnabled')">
-              <div class="group-memory-switch-row">
-                <el-switch v-model="conversationGroupForm.memoryEnabled"></el-switch>
-                <span class="group-memory-switch-hint">{{ t('groupMemoryEnabledHint') }}</span>
-              </div>
             </el-form-item>
           </el-form>
           <template #footer>
-            <el-button @click="showConversationGroupDialog = false">{{ t('cancel') }}</el-button>
-            <el-button type="primary" @click="submitConversationGroupDialog">{{ t('confirm') }}</el-button>
+            <el-button @click="showCreateDevSessionDialog = false">{{ t('cancel') }}</el-button>
+            <el-button type="primary" @click="createDevConversation">{{ t('create') }}</el-button>
+          </template>
+        </el-dialog>
+
+        <!-- 重置主会话确认弹窗 -->
+        <el-dialog
+          append-to-body
+          v-model="showResetMainSessionDialog"
+          :title="t('resetMainSession')"
+          width="420px"
+        >
+          <p style="margin: 0; color: var(--el-text-color-regular);">{{ t('resetMainSessionWarning') }}</p>
+          <template #footer>
+            <el-button @click="showResetMainSessionDialog = false">{{ t('cancel') }}</el-button>
+            <el-button type="danger" @click="confirmResetMainSession">{{ t('reset') }}</el-button>
+          </template>
+        </el-dialog>
+
+        <!-- 归档主会话确认弹窗 -->
+        <el-dialog
+          append-to-body
+          v-model="showArchiveMainSessionDialog"
+          :title="t('archiveMainSession')"
+          width="420px"
+        >
+          <p style="margin: 0; color: var(--el-text-color-regular);">{{ t('archiveMainSessionWarning') }}</p>
+          <template #footer>
+            <el-button @click="showArchiveMainSessionDialog = false">{{ t('cancel') }}</el-button>
+            <el-button type="primary" @click="confirmArchiveMainSession">{{ t('archive') }}</el-button>
+          </template>
+        </el-dialog>
+
+        <!-- 开发会话归档弹窗 -->
+        <el-dialog
+          append-to-body
+          v-model="showArchiveDevDialog"
+          :title="t('archiveDevSession')"
+          width="560px"
+          :close-on-click-modal="false"
+        >
+          <el-form label-position="top">
+            <el-form-item :label="t('archiveSummaryLabel')">
+              <el-input
+                v-model="archiveDevForm.summary"
+                type="textarea"
+                :rows="6"
+                :placeholder="t('archiveSummaryPlaceholder')"
+              ></el-input>
+              <div style="margin-top: 4px; display: flex; align-items: center; gap: 8px;">
+                <el-button size="small" @click="generateArchiveSummary" :loading="archiveDevForm.generating" plain>
+                  <i class="fa-solid fa-wand-magic-sparkles" style="margin-right: 4px;"></i>{{ t('aiDraftSummary') }}
+                </el-button>
+                <span v-if="archiveDevForm.generating" style="font-size: 12px; opacity: 0.6;">{{ t('draftingInProgress') }}</span>
+              </div>
+            </el-form-item>
+            <el-form-item :label="t('archiveFilePathLabel')">
+              <el-input v-model="archiveDevForm.filePath" :placeholder="t('archiveFilePathPlaceholder')"></el-input>
+              <div style="font-size: 11px; opacity: 0.5; margin-top: 2px;">{{ t('archiveFilePathHint') }}</div>
+            </el-form-item>
+            <el-form-item>
+              <el-checkbox v-model="devArchiveQuickSave">{{ t('devArchiveQuickSaveLabel') }}</el-checkbox>
+              <div style="font-size: 11px; opacity: 0.5;">{{ t('devArchiveQuickSaveHint') }}</div>
+            </el-form-item>
+          </el-form>
+          <template #footer>
+            <el-button @click="showArchiveDevDialog = false">{{ t('cancel') }}</el-button>
+            <el-button type="primary" @click="confirmArchiveDevSession" :disabled="!archiveDevForm.summary.trim()">
+              <i class="fa-solid fa-box-archive" style="margin-right: 4px;"></i>{{ t('confirmArchive') }}
+            </el-button>
           </template>
         </el-dialog>
 
@@ -3064,21 +3113,6 @@ function updateElement(el, rawMarkdown, formatFn) {
           <template #footer>
             <el-button @click="showDeleteConversationDialog = false">{{ t('cancel') }}</el-button>
             <el-button type="danger" @click="confirmDeleteConversationDeletion">{{ t('delete') }}</el-button>
-          </template>
-        </el-dialog>
-
-        <el-dialog
-          append-to-body
-          v-model="showDeleteGroupDialog"
-          :title="t('delete')"
-          width="420px"
-        >
-          <div class="chat-history-confirm-copy">{{ t('confirmDeleteGroup') }}</div>
-          <div class="chat-history-confirm-title">{{ deleteGroupForm.name }}</div>
-          <div class="chat-history-confirm-note">{{ getDeleteGroupWarningText() }}</div>
-          <template #footer>
-            <el-button @click="showDeleteGroupDialog = false">{{ t('cancel') }}</el-button>
-            <el-button type="danger" @click="confirmDeleteGroupDeletion">{{ t('delete') }}</el-button>
           </template>
         </el-dialog>
 

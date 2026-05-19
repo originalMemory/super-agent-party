@@ -1392,6 +1392,16 @@ docker-compose -f ${composeFile} up -d`;
 
       return Array.from(skillMap.values());
     },
+    mainConversation() {
+      return (this.conversations || []).find(
+        c => c.kind === 'main' && (c.groupId || 'default') === 'default'
+      ) || null;
+    },
+    isArchiveConversation() {
+      if (!this.conversationId) return false;
+      const conv = (this.conversations || []).find(c => c.id === this.conversationId);
+      return conv?.groupId === 'archive' || conv?.kind === 'archive';
+    },
     hasWorkspacePath() {
         return this.CLISettings && 
                this.CLISettings.cc_path && 
@@ -1761,10 +1771,17 @@ docker-compose -f ${composeFile} up -d`;
       const keyword = (this.searchKeyword || '').trim().toLowerCase();
 
       return groups
-        .map(group => ({
-          ...group,
-          conversations: conversations.filter(conv => (conv.groupId || 'default') === group.id)
-        }))
+        .map(group => {
+          const groupConvs = conversations.filter(conv => (conv.groupId || 'default') === group.id);
+          if (group.id === 'default') {
+            groupConvs.sort((a, b) => {
+              if (a.kind === 'main' && b.kind !== 'main') return -1;
+              if (a.kind !== 'main' && b.kind === 'main') return 1;
+              return 0;
+            });
+          }
+          return { ...group, conversations: groupConvs };
+        })
         .filter(group => {
           if (!keyword) return true;
           return group.conversations.length > 0 || (group.name || '').toLowerCase().includes(keyword);

@@ -357,41 +357,60 @@ if memory_notes:
 复用 SAP 既有「分组 + 会话」底座，**收敛**为两组固定结构。
 
 ```
-主分组（fixed, system）
+主分组（id=default, fixed）
 ├── 主会话（kind=main，单例，不可删；可"重置"、可"主动归档"）
-├── 开发会话 #1（kind=dev，可多开，可绑定 cc_path 工作区）
+├── 开发会话 #1（kind=dev，可多开）
 ├── 开发会话 #2
 └── ...
 
-归档分组（fixed, system）
-├── 归档主会话快照-2026-05-10（kind=archive，只读浏览）
-├── 归档主会话快照-2026-04-22
-└── ...   ← 仅保存归档的主会话；开发会话不入此分组
+归档分组（id=archive, fixed）
+├── 归档主会话快照-2026-05-10（kind=archive, original_kind=main）
+├── 归档开发会话-2026-05-15（kind=archive, original_kind=dev）
+└── ...
 ```
 
-### 会话表新增字段
+### 会话对象新增字段
 
 | 字段 | 取值 | 说明 |
 |------|------|------|
-| `kind` | `'main' \| 'dev' \| 'archive'` | 强类型；同一时间主分组内 `kind=main` 至多 1 条 |
-| `workspace_path` | `string \| null` | 仅 `dev` 可为非空 |
+| `kind` | `'main' \| 'dev' \| 'archive'` | 强类型；主分组内 `kind=main` 至多 1 条 |
 | `archived_at` | `timestamp \| null` | `archive` 必填 |
-| `summary_path` | `string \| null` | 仅 `dev` 归档时写入 |
+| `summary_path` | `string \| null` | dev 归档时写入摘要落盘路径 |
+| `original_kind` | `'main' \| 'dev' \| null` | 归档时记录原始类型，用于 UI 区分图标 |
 
-### Bootstrap 差异
+**不新增 `workspace_path`**：所有会话统一使用全局 `CLISettings.cc_path` 作为工作区路径。理由：没有不同开发会话使用不同目录的实际场景。
 
-| 项 | `main` | `dev` |
-|----|--------|-------|
-| 全局 system_prompt | ✓ | ✓ |
-| userProfile | ✓ | ✓ |
-| soul | ✓（当前角色卡） | ✓（当前角色卡） |
-| 现有字段注入（desc/personality/...） | ✓ | ✓ |
-| memoryNotes | ✓（常驻） | ✓（常驻） |
-| 日记树 FTS recall | ✓ | ✓ |
-| mem0 recall | 默认关闭，手动开启 | 默认关闭，手动开启 |
-| 工作区 .agent/ | 按 cc_path | 按 workspace_path |
+### Bootstrap（main 与 dev 完全一致）
+
+`dev` 与 `main` 共享同一套 bootstrap 注入，无差异：
+
+| 注入项 | 说明 |
+|--------|------|
+| 全局 system_prompt | ✓ |
+| userProfile | ✓ |
+| soul（当前角色卡） | ✓ |
+| 现有字段注入（desc/personality/...） | ✓ |
+| memoryNotes（全局） | ✓ |
+| 日记树 FTS recall | ✓ |
+| mem0 recall | 默认关闭，手动开启 |
+| 工作区 .agent/ | 统一按全局 `CLISettings.cc_path` |
 
 **原则**：开发会话与主会话**共享同一角色卡**的完整注入——是「同一个她，今天陪你写代码」。
+
+### 后端 API（参考 lover 分支）
+
+| API | 方法 | 说明 |
+|-----|------|------|
+| `/api/lover/reset-main-session` | POST | 清空主会话消息，保留会话槽位 |
+| `/api/lover/archive-main-session` | POST | 深拷贝快照到归档分组（`original_kind=main`），原会话清空重建 |
+| `/api/lover/create-dev-session` | POST | 在主分组创建 `kind=dev` 会话 |
+| `/api/lover/archive-dev-session` | POST | 落盘摘要 → 追加摘要消息（保留对话历史）→ 移入归档分组（`original_kind=dev`） |
+
+### lifespan 初始化
+
+启动时确保：
+1. `default` 和 `archive` 两个固定分组存在
+2. 主分组内存在 `kind=main` 单例（不存在则自动创建）
 
 ---
 
@@ -401,7 +420,7 @@ if memory_notes:
 
 1. Agent 基于本会话上下文起草日志摘要（任务标题、关键产出/决策、未决问题）
 2. 弹窗给用户编辑/确认，目标文件名预填 `lover/memory/YYYY/MM/<YYYY-MM-DD>-work-<slug>.md`
-3. 确认 → 落盘 → 删除会话历史 → 写入 `summary_path`
+3. 确认 → 落盘 → 追加摘要消息到对话末尾（保留原有消息历史）→ 写入 `summary_path` → 移入归档分组
 4. 下一轮 `sync_memory_index` 后被 FTS 索引，主会话即可通过 FTS 召回该摘要
 5. 降级：Agent 起草失败时，仅含元信息的摘要文件
 
@@ -475,8 +494,10 @@ if memory_notes:
 | **后端** | `py/character_card_tools.py`（新建）：`get_character_card` / `update_character_card` / `update_user_profile` / `update_memory_notes` AI 工具 |
 | **后端** | `server.py` `dispatch_tool`：注册角色卡工具到 `_TOOL_HOOKS` + `SENSITIVE_TOOLS` |
 | **后端** | `py/lover_memory_fts.py` + `py/lover_fts_simple_auto.py`：日记树 FTS 索引与检索（从 lover 分支移植） |
-| **后端** | `py/get_setting.py`：`load_settings` / `save_settings` 自动兼容新字段（JSON 整包，无需 schema 迁移） |
+| **后端** | `py/get_setting.py`：`load_settings` / `save_settings` 自动兼容新字段（JSON 整包，无需 schema 迁移）；`load_covs` / `save_covs` 管理会话 JSON |
 | **后端** | `config/settings_template.json`：新增字段默认值 |
+| **后端** | `server.py` `lifespan`：确保固定分组 + 主会话单例 |
+| **后端** | `server.py` `api/lover/*`：会话管理 API（reset-main / archive-main / create-dev / archive-dev） |
 | **前端** | `static/index.html`：角色卡编辑表单新增 SOUL 区域；新增独立「用户档案与记忆」Tab（含 memoryNotes、userProfile、日记树配置） |
 | **前端** | `static/js/vue_data.js`：`memories[]` 初始结构新增 `soul`；`memorySettings` 新增 `userProfile`、`memoryNotes` |
 | **前端** | `static/js/vue_methods.js`：`addMemory` 时初始化 `soul`；`autoSaveSettings` 无需改动（已整包保存） |
@@ -511,5 +532,7 @@ if memory_notes:
 5. **mem0 可选默认关闭**：保留代码通路，用户可手动开启
 6. **注入顺序**：userProfile → soul → 现有链 → memoryNotes → FTS recall → mem0（可选）
 7. **兼容性**：所有新字段默认空值，向后兼容
-8. **会话模型**：固定两组结构（主分组 + 归档分组），沿用 lover 设计
-9. **品牌**：保持 super-agent-party
+8. **会话模型**：固定两组结构（主分组 + 归档分组），沿用 lover 设计；新增 `original_kind` 记录归档前原始类型
+9. **不新增 workspace_path**：所有会话统一使用全局 `CLISettings.cc_path`，无需会话级工作区绑定
+10. **归档保留消息**：dev 归档时保留原有消息历史 + 追加摘要消息，不删除对话
+11. **品牌**：保持 super-agent-party

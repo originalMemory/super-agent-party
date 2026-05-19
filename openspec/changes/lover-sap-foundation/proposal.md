@@ -32,9 +32,9 @@
 
 沿用 lover 分支已验证的会话模型设计，与角色卡体系融合：
 
-- 主分组（`main` 单例 + 0..N `dev`）+ 归档分组（`archive` 只读）
-- `dev` 会话与 `main` 共享当前选中角色卡的完整 bootstrap
-- 摘要回流：`dev` 归档时由 Agent 起草摘要 → 用户确认 → 写入角色卡的 `memoryNotes` 或独立日记文件
+- 主分组（`main` 单例 + 0..N `dev`）+ 归档分组（`archive` 只读，带 `original_kind` 区分来源）
+- `dev` 会话与 `main` 共享当前选中角色卡的完整 bootstrap；**不新增 `workspace_path`**，统一使用全局 `CLISettings.cc_path`
+- 摘要回流：`dev` 归档时由 Agent 起草摘要 → 用户确认 → 落盘日记文件 → 追加摘要消息（保留对话历史）→ 移入归档分组
 
 ### 阶段 D — 会话启动序列
 
@@ -66,7 +66,7 @@
 
 ## Impact
 
-- **后端**：`generate_stream_response` 注入链增加 `userProfile`、`soul`、`memoryNotes`（全局）、FTS recall 四个注入点；保留 `cur_memory` 整套注入逻辑（非删除）；新增 `py/character_card_tools.py` AI 工具模块（含 `update_memory_notes`）；日记树 FTS 索引与检索模块（复用 lover 分支实现）；会话模型新增 `kind`/`workspace_path`/`archived_at`/`summary_path` 字段
+- **后端**：`generate_stream_response` 注入链增加 `userProfile`、`soul`、`memoryNotes`（全局）、FTS recall 四个注入点；保留 `cur_memory` 整套注入逻辑（非删除）；新增 `py/character_card_tools.py` AI 工具模块（含 `update_memory_notes`）；日记树 FTS 索引与检索模块（复用 lover 分支实现）；会话对象新增 `kind`/`archived_at`/`summary_path`/`original_kind` 字段；会话管理 API（参考 lover 分支）
 - **前端**：角色卡编辑界面新增 SOUL tab；新增独立「用户档案与记忆」Tab（含 memoryNotes、userProfile、日记树配置）；会话分组 UI 收敛为固定两组
-- **数据模型**：`memories[]` 增加 `soul` 字段；`memorySettings` 增加 `userProfile`、`memoryNotes`、`memoryDirPath`、`memoryIndexSyncMinutes` 字段；会话表增加 `kind` 等字段
+- **数据模型**：`memories[]` 增加 `soul` 字段；`memorySettings` 增加 `userProfile`、`memoryNotes`、`memoryDirPath`、`memoryIndexSyncMinutes` 字段；会话对象增加 `kind`/`archived_at`/`summary_path`/`original_kind` 字段
 - **兼容性**：新字段均可选（空字符串时跳过注入），对未配置新字段的老角色卡完全兼容

@@ -723,6 +723,51 @@ async def lifespan(app: FastAPI):
         logger.addHandler(handler)
     logger.info("===== 日志系统初始化成功 =====")
 
+    # --- [会话初始化：确保固定分组 + 主会话单例] ---
+    try:
+        covs = await load_covs()
+        conversations = covs.get("conversations") or []
+        groups = covs.get("conversationGroups") or []
+
+        group_ids = {g.get("id") for g in groups if g}
+        changed = False
+        if "default" not in group_ids:
+            groups.insert(0, {"id": "default", "name": "default", "createdAt": 0, "memoryConfig": {}})
+            changed = True
+        if "archive" not in group_ids:
+            groups.append({"id": "archive", "name": "archive", "createdAt": 0, "memoryConfig": {}})
+            changed = True
+
+        has_main = any(
+            c.get("kind") == "main" and (c.get("groupId") or "default") == "default"
+            for c in conversations
+        )
+        if not has_main:
+            main_conv = {
+                "id": shortuuid.ShortUUID().random(length=12),
+                "title": "",
+                "mainAgent": settings.get("mainAgent", ""),
+                "groupId": "default",
+                "timestamp": int(time.time() * 1000),
+                "messages": [],
+                "fileLinks": [],
+                "system_prompt": settings.get("system_prompt", ""),
+                "kind": "main",
+                "archived_at": None,
+                "summary_path": None,
+            }
+            conversations.insert(0, main_conv)
+            changed = True
+            logger.info("已创建主会话单例: %s", main_conv["id"])
+
+        if changed:
+            covs["conversations"] = conversations
+            covs["conversationGroups"] = groups
+            await save_covs(covs)
+            logger.info("会话初始化完成")
+    except Exception as e:
+        logger.warning("会话初始化失败（不影响启动）: %s", e)
+
     # --- [代理与 HTTP 客户端初始化] ---
     proxy_url = None
     trust_env = False
@@ -7367,6 +7412,137 @@ async def delete_conversation_endpoint(req: DeleteConversationRequest):
     if req.delete_memory:
         await _invalidate_group_memories_by_chat(req.conversation_id)
     return {"success": True}
+
+# ── 会话管理 API ─────────────────────────────────────────────
+
+class ResetMainRequest(BaseModel):
+    conversation_id: Union[str, int, float]
+
+class ArchiveMainRequest(BaseModel):
+    conversation_id: Union[str, int, float]
+    title: Optional[str] = None
+
+class CreateDevRequest(BaseModel):
+    title: str = ""
+
+class ArchiveDevRequest(BaseModel):
+    conversation_id: Union[str, int, float]
+    summary: str
+    file_path: str = ""
+
+@app.post("/api/lover/reset-main-session")
+async def reset_main_session(req: ResetMainRequest):
+    conv_id = _normalize_entity_id(req.conversation_id)
+    covs = await load_covs()
+    for conv in (covs.get("conversations") or []):
+        if conv.get("id") == conv_id and conv.get("kind") == "main":
+            conv["messages"] = []
+            conv["timestamp"] = int(time.time() * 1000)
+            await save_covs(covs)
+            return {"success": True}
+    return JSONResponse(status_code=404, content={"success": False, "message": "Main session not found"})
+
+@app.post("/api/lover/archive-main-session")
+async def archive_main_session(req: ArchiveMainRequest):
+    """主会话归档：快照到归档分组，原会话原地清空重建。"""
+    conv_id = _normalize_entity_id(req.conversation_id)
+    covs = await load_covs()
+    conversations = covs.get("conversations") or []
+    conv = next((c for c in conversations if c.get("id") == conv_id and c.get("kind") == "main"), None)
+    if not conv:
+        return JSONResponse(status_code=404, content={"success": False, "message": "Main session not found"})
+
+    archived = copy.deepcopy(conv)
+    archived["id"] = shortuuid.ShortUUID().random(length=12)
+    archived["original_kind"] = "main"
+    archived["kind"] = "archive"
+    archived["groupId"] = "archive"
+    archived["archived_at"] = int(time.time() * 1000)
+    ts_label = datetime.now().strftime("%Y-%m-%d %H:%M")
+    base_title = req.title or conv.get("title") or "Main Session"
+    archived["title"] = f"{base_title} [{ts_label}]"
+    conversations.append(archived)
+
+    conv["messages"] = []
+    conv["timestamp"] = int(time.time() * 1000)
+
+    covs["conversations"] = conversations
+    await save_covs(covs)
+    return {"success": True, "archived_id": archived["id"], "archived": archived}
+
+@app.post("/api/lover/create-dev-session")
+async def create_dev_session(req: CreateDevRequest):
+    """创建开发会话。"""
+    covs = await load_covs()
+    conversations = covs.get("conversations") or []
+    current_settings = await load_settings()
+    new_conv = {
+        "id": shortuuid.ShortUUID().random(length=12),
+        "title": req.title or "",
+        "mainAgent": (current_settings or {}).get("mainAgent", ""),
+        "groupId": "default",
+        "timestamp": int(time.time() * 1000),
+        "messages": [],
+        "fileLinks": [],
+        "system_prompt": (current_settings or {}).get("system_prompt", ""),
+        "kind": "dev",
+        "archived_at": None,
+        "summary_path": None,
+    }
+    conversations.insert(0, new_conv)
+    covs["conversations"] = conversations
+    await save_covs(covs)
+    return {"success": True, "conversation": new_conv}
+
+@app.post("/api/lover/archive-dev-session")
+async def archive_dev_session(req: ArchiveDevRequest):
+    """开发会话归档：落盘摘要文件 → 追加摘要消息（保留对话历史）→ 移入归档分组。"""
+    conv_id = _normalize_entity_id(req.conversation_id)
+    covs = await load_covs()
+    conversations = covs.get("conversations") or []
+    conv = next((c for c in conversations if c.get("id") == conv_id and c.get("kind") == "dev"), None)
+    if not conv:
+        return JSONResponse(status_code=404, content={"success": False, "message": "Dev conversation not found"})
+
+    file_path = req.file_path.strip()
+    summary = req.summary.strip()
+    written = False
+    if file_path and summary:
+        try:
+            from py.lover_memory_fts import lover_data_root
+            root = lover_data_root().resolve()
+            full_path = (root / file_path).resolve()
+            if not str(full_path).startswith(str(root)):
+                return JSONResponse(status_code=400, content={"success": False, "message": "Invalid file path"})
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_text(summary, encoding="utf-8")
+            written = True
+            logger.info("[archive] 摘要已落盘: %s", full_path)
+        except Exception as e:
+            logger.warning("[archive] 摘要落盘失败: %s", e)
+
+    if summary:
+        summary_msg = {
+            "id": shortuuid.ShortUUID().random(length=12),
+            "role": "assistant",
+            "content": f"## 📋 开发会话摘要\n\n{summary}",
+            "pure_content": f"## 📋 开发会话摘要\n\n{summary}",
+            "timestamp": int(time.time() * 1000),
+            "is_archive_summary": True,
+        }
+        messages = conv.get("messages") or []
+        messages.append(summary_msg)
+        conv["messages"] = messages
+
+    conv["original_kind"] = "dev"
+    conv["kind"] = "archive"
+    conv["groupId"] = "archive"
+    conv["archived_at"] = int(time.time() * 1000)
+    conv["summary_path"] = file_path if written else None
+
+    covs["conversations"] = conversations
+    await save_covs(covs)
+    return {"success": True, "written": written, "summary_path": conv["summary_path"]}
 
 @app.post("/api/group-memory/clear-group")
 async def clear_group_memory_endpoint(req: ClearGroupMemoryRequest):

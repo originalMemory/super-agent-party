@@ -40,17 +40,17 @@
 
 ## 6. 会话数据模型
 
-- [ ] 6.1 会话表新增字段：`kind: 'main' | 'dev' | 'archive'`、`workspace_path`、`archived_at`、`summary_path`
-- [ ] 6.2 启动时确保两个固定分组存在；`kind=main` 在主分组内单例
-- [ ] 6.3 后端 API：主会话重置/归档；开发会话创建（可选 workspace_path）/重置/归档（触发摘要回流）；归档会话「拉回主会话」
-- [ ] 6.4 `dev` bootstrap 装配：与 `main` 共享角色卡完整注入 + FTS recall；绑定工作区时追加 `.agent/` 概要
+- [x] 6.1 会话对象新增字段：`kind: 'main' | 'dev' | 'archive'`、`archived_at`、`summary_path`、`original_kind`（归档时记录原始类型）；**不新增** `workspace_path`（统一使用全局 `CLISettings.cc_path`）
+- [x] 6.2 `lifespan` 启动时确保两个固定分组（`default` + `archive`）存在；`kind=main` 在主分组内单例自动创建
+- [x] 6.3 后端 API（参考 lover 分支 `api/lover/*`）：主会话重置 / 主会话归档（快照到归档分组，原会话清空重建）；开发会话创建 / 开发会话归档（落盘摘要 + 追加摘要消息 + 移入归档分组）
+- [x] 6.4 前端创建会话路径显式初始化 `kind`/`archived_at`/`summary_path` 字段；`dev` bootstrap 与 `main` 一致（共享角色卡 + FTS recall + 全局 cc_path）
 
 ## 7. 前端会话 UI
 
-- [ ] 7.1 分组栏收敛为固定「主分组 / 归档分组」；保留用户新建开发会话入口
-- [ ] 7.2 主分组：主会话单例置顶 + 「+ 开发会话」按钮
-- [ ] 7.3 归档分组：只读浏览 + 「拉回主会话」按钮
-- [ ] 7.4 开发会话归档弹窗：Agent 起草摘要 + 目标文件名预填 + 编辑确认
+- [x] 7.1 分组栏收敛为固定「主分组 / 归档分组」；保留用户新建开发会话入口
+- [x] 7.2 主分组：主会话单例置顶 + 「+ 开发会话」按钮
+- [x] 7.3 归档分组：只读浏览 + original_kind 图标区分
+- [x] 7.4 开发会话归档弹窗：Agent 起草摘要 + 目标文件名预填 + 编辑确认
 
 ## 8. 会话启动序列
 
@@ -60,7 +60,7 @@
 ## 9. 摘要回流
 
 - [ ] 9.1 开发会话归档时 Agent 起草摘要 → 弹窗确认 → 落盘 `{memoryDirPath}/YYYY/MM/<YYYY-MM-DD>-work-<slug>.md`
-- [ ] 9.2 落盘后删除会话历史、写入 `summary_path`
+- [ ] 9.2 落盘后追加摘要消息（保留原有消息历史），写入 `summary_path`，移入归档分组
 - [ ] 9.3 落盘后下一轮 `sync_memory_index` 将摘要纳入 FTS 索引
 - [ ] 9.4 起草失败降级：仅含元信息的摘要文件
 - [ ] 9.5 `memorySettings.devArchiveQuickSave` 开关（默认 false）
@@ -89,5 +89,5 @@
 - [ ] S.8 AI 工具 `get_character_card`：返回当前角色卡字段 + userProfile
 - [ ] S.9 AI 工具 `update_memory_notes`：修改全局 memoryNotes 后 save_settings 生效；`update_character_card` 修改 name 被拒绝
 - [ ] S.10 自定义日记树路径：配置 `memoryDirPath` 后 FTS 索引切换到新目录
-- [ ] S.11 主会话归档与重置；归档会话只读 + 「拉回主会话」可用
-- [ ] S.12 开发会话归档弹窗 → 落盘摘要 → FTS 收录 → 对话历史删除
+- [ ] S.11 主会话归档与重置；归档会话只读浏览；`original_kind` 正确标记
+- [ ] S.12 开发会话归档弹窗 → 落盘摘要 → 追加摘要消息 → FTS 收录

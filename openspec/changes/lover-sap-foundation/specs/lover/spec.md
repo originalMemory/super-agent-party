@@ -236,18 +236,18 @@ The implementation MUST conform to all normative statements ("必须" / "不得"
 
 The implementation MUST conform to all normative statements ("必须" / "不得") in this requirement.
 
-产品**必须**复用既有「分组 + 会话」底座，**收敛为两组固定结构**：**主分组**与**归档分组**。这两个分组**不得**由用户新建、删除或重命名。
+产品**必须**复用既有「分组 + 会话」底座，**收敛为两组固定结构**：**主分组**（`id=default`）与**归档分组**（`id=archive`）。这两个分组**不得**由用户新建、删除或重命名。
 
 会话**必须**带有种类字段 `kind ∈ { main, dev, archive }`：
 
 - **`main`**：主会话；主分组内**至多一条**；**不得**被删除；可"重置"或"主动归档"。
-- **`dev`**：开发会话；**仅**存在于主分组内；可多开；可选绑定 `workspace_path`。
-- **`archive`**：归档主会话快照；**仅**存在于归档分组内；**只读**。
+- **`dev`**：开发会话；**仅**存在于主分组内；可多开。**不新增** `workspace_path`，统一使用全局 `CLISettings.cc_path`。
+- **`archive`**：归档会话快照；**仅**存在于归档分组内；**只读**。**必须**带有 `original_kind` 字段（`'main'` 或 `'dev'`）记录归档前的原始类型。
 
 #### Scenario: 主动归档（主会话）
 
 - **当** 用户对主会话执行"主动归档"
-- **则** 当前主会话快照进入归档分组，主分组中保留主会话槽位。
+- **则** 深拷贝当前主会话快照进入归档分组（`original_kind=main`），原主会话清空消息重建。
 
 #### Scenario: 重置（主会话）
 
@@ -257,7 +257,12 @@ The implementation MUST conform to all normative statements ("必须" / "不得"
 #### Scenario: 归档只读
 
 - **当** 用户打开归档会话
-- **则** 仅可浏览和「拉回主会话」，**不得**继续发送新消息。
+- **则** 仅可浏览，**不得**继续发送新消息。
+
+#### Scenario: lifespan 初始化
+
+- **当** 系统启动
+- **则** **必须**确保 `default` 和 `archive` 两个固定分组存在；**必须**确保主分组内存在 `kind=main` 单例（不存在则自动创建）。
 
 ---
 
@@ -267,13 +272,13 @@ The implementation MUST conform to all normative statements ("必须" / "不得"
 
 `dev` 会话主动归档时，系统**必须**触发"摘要回流"：Agent 基于本会话上下文起草日志摘要，以 `.md` 形式落入 `lover/memory/YYYY/MM/<YYYY-MM-DD>-work-<slug>.md`。
 
-默认行为**必须**为"先弹窗给用户编辑/确认，再落盘"。`loverSettings.devArchiveQuickSave`（默认 `false`）开关开启时可跳过弹窗。
+默认行为**必须**为"先弹窗给用户编辑/确认，再落盘"。`memorySettings.devArchiveQuickSave`（默认 `false`）开关开启时可跳过弹窗。
 
-落盘成功后**必须**：删除 `dev` 会话对话历史 + 写入 `summary_path`。
+落盘成功后**必须**：追加摘要消息到对话末尾（保留原有消息历史）+ 写入 `summary_path` + 设置 `original_kind=dev` + 移入归档分组。
 
 Agent 起草失败时**仍必须**允许归档，以仅含元信息的摘要文件落盘。
 
-**不得**将摘要写入角色卡的 `memoryNotes`——memoryNotes 由用户精心维护，工作日志走日记树。
+**不得**将摘要写入 `memoryNotes`——memoryNotes 由用户精心维护，工作日志走日记树。
 
 #### Scenario: 默认弹窗确认
 

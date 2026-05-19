@@ -258,6 +258,9 @@ let vue_methods = {
             messages: this.messages,
             fileLinks: this.fileLinks,
             system_prompt: this.system_prompt,
+            kind: null,
+            archived_at: null,
+            summary_path: null,
         };
         this.conversations.unshift(newConv);
     } else {
@@ -576,6 +579,8 @@ let vue_methods = {
       this.openDeleteConversationDialog(conversation);
     },
     ensureConversationGroups() {
+      const rawGroups = Array.isArray(this.conversationGroups) ? this.conversationGroups : [];
+
       const defaultGroup = {
         id: 'default',
         name: this.t('defaultConversationGroup'),
@@ -583,21 +588,48 @@ let vue_methods = {
         memoryConfig: {}
       };
 
-      const rawGroups = Array.isArray(this.conversationGroups) ? this.conversationGroups : [];
+      const archiveGroup = {
+        id: 'archive',
+        name: this.t('archiveConversationGroup'),
+        createdAt: 0,
+        memoryConfig: {}
+      };
+
       const groups = rawGroups
-        .filter(group => group && group.id && group.id !== 'default')
+        .filter(group => group && group.id && group.id !== 'default' && group.id !== 'archive')
         .map(group => ({
           ...group,
           memoryConfig: group.memoryConfig || {}
         }));
 
-      this.conversationGroups = [defaultGroup, ...groups];
+      this.conversationGroups = [defaultGroup, archiveGroup, ...groups];
       if (Array.isArray(this.conversations)) {
         this.conversations.forEach(conv => {
           if (!conv.groupId) {
             conv.groupId = 'default';
           }
         });
+
+        const mainConvs = this.conversations.filter(
+          c => c.kind === 'main' && (c.groupId || 'default') === 'default'
+        );
+        if (mainConvs.length === 0) {
+          const mainConv = {
+            id: uuid.v4(),
+            title: '',
+            mainAgent: this.mainAgent,
+            groupId: 'default',
+            timestamp: Date.now(),
+            messages: [],
+            fileLinks: [],
+            system_prompt: this.system_prompt || '',
+            kind: 'main',
+            archived_at: null,
+            summary_path: null,
+          };
+          this.conversations.unshift(mainConv);
+          console.log('[lover] 已自动创建主会话单例:', mainConv.id);
+        }
       }
       const nextCollapsedState = { ...(this.collapsedConversationGroups || {}) };
       this.conversationGroups.forEach(group => {
@@ -642,104 +674,295 @@ let vue_methods = {
       }
       this.chatHistoryPanelOpen = !this.chatHistoryPanelOpen;
     },
-    createConversationGroup() {
-      this.conversationGroupDialogMode = 'create';
-      this.conversationGroupForm = {
-        id: null,
-        name: '',
-        memoryEnabled: false,
-      };
-      this.showConversationGroupDialog = true;
-    },
-    openRenameConversationGroupDialog(group) {
-      if (!group?.id || group.id === 'default') return;
-      this.conversationGroupDialogMode = 'rename';
-      this.conversationGroupForm = {
-        id: group.id,
-        name: group.name || '',
-        memoryEnabled: !!group.memoryConfig?.enabled,
-      };
-      this.showConversationGroupDialog = true;
-    },
-    async submitConversationGroupDialog() {
-      this.ensureConversationGroups();
-      const name = String(this.conversationGroupForm?.name || '').trim();
-      if (!name) {
-        showNotification(this.t('groupNameRequired'), 'error');
-        return;
-      }
-
-      const currentGroupId = this.conversationGroupForm?.id || null;
-      const exists = this.conversationGroups.some(group =>
-        group.id !== currentGroupId && (group.name || '').trim() === name
-      );
-      if (exists) {
-        showNotification(this.t('groupNameExists'), 'error');
-        return;
-      }
-
-      if (this.conversationGroupDialogMode === 'rename' && currentGroupId) {
-        const targetGroup = this.conversationGroups.find(group => group.id === currentGroupId);
-        if (!targetGroup) return;
-        targetGroup.name = name;
-        targetGroup.memoryConfig = {
-          ...(targetGroup.memoryConfig || {}),
-          enabled: !!this.conversationGroupForm?.memoryEnabled,
-        };
-        await this.saveConversations();
-        this.showConversationGroupDialog = false;
-        showNotification(this.t('groupRenamed'), 'success');
-        return;
-      }
-
-      const newGroup = {
-        id: uuid.v4(),
-        name,
-        createdAt: Date.now(),
-        memoryConfig: {
-          enabled: !!this.conversationGroupForm?.memoryEnabled,
-        }
-      };
-
-      this.conversationGroups.push(newGroup);
-      this.draftConversationGroupId = newGroup.id;
-      this.activeConversationGroupId = newGroup.id;
-      await this.saveConversations();
-      this.showConversationGroupDialog = false;
-      showNotification(this.t('groupCreated'), 'success');
-    },
     async startConversationInGroup(groupId = null) {
       this.ensureConversationGroups();
       const targetGroupId = groupId || this.activeConversationGroupId || this.draftConversationGroupId || 'default';
       this.setActiveConversationGroup(targetGroupId);
       await this.clearMessages(targetGroupId);
     },
-    async moveConversationToGroup(convId, groupId) {
-      this.ensureConversationGroups();
-      const targetGroupId = groupId || 'default';
-      const conversation = this.conversations.find(conv => conv.id === convId);
-      if (!conversation) return;
 
-      conversation.groupId = targetGroupId;
-      if (convId === this.conversationId) {
-        this.draftConversationGroupId = targetGroupId;
-        this.activeConversationGroupId = targetGroupId;
+    // ── Lover 会话管理 ──────────────────────────────────────────────
+    openCreateDevSessionDialog() {
+      this.newDevSessionForm = { title: '' };
+      this.showCreateDevSessionDialog = true;
+    },
+    async createDevConversation() {
+      this.showCreateDevSessionDialog = false;
+      const title = this.newDevSessionForm.title?.trim() || '';
+
+      try {
+        const resp = await fetch('/api/lover/create-dev-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          const newConv = data.conversation;
+          if (newConv) {
+            this.conversations.unshift(newConv);
+            this.loadConversation(newConv.id);
+            return;
+          }
+        }
+      } catch (_) {}
+
+      await this.startConversationInGroup('default');
+    },
+    openArchiveMainSessionDialog(convId) {
+      this.pendingArchiveMainConvId = convId;
+      this.showArchiveMainSessionDialog = true;
+    },
+    async confirmArchiveMainSession() {
+      const convId = this.pendingArchiveMainConvId;
+      if (!convId) return;
+
+      const conv = this.conversations.find(c => c.id === convId);
+      const baseTitle = (conv?.title) || this.t('mainSession');
+
+      let success = false;
+      try {
+        const resp = await fetch('/api/lover/archive-main-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversation_id: this.stringifyEntityId(convId),
+            title: baseTitle,
+          }),
+        });
+        if (!resp.ok) {
+          console.warn('[lover] archive-main-session returned', resp.status);
+          showNotification(this.t('requestFailed') || 'Request failed', 'error');
+        } else {
+          const data = await resp.json();
+          if (data.archived) {
+            this.conversations.push(data.archived);
+          }
+          success = true;
+        }
+      } catch (e) {
+        console.warn('[lover] archive-main-session failed:', e);
+        showNotification(this.t('requestFailed') || 'Request failed', 'error');
       }
-      await this.saveConversations();
+
+      if (success) {
+        if (conv) {
+          conv.messages = [];
+          conv.timestamp = Date.now();
+        }
+        if (this.conversationId === convId) {
+          this.messages = [{ id: Date.now() + Math.random(), role: 'system', content: this.system_prompt }];
+          this.conversationId = null;
+          this.fileLinks = [];
+          this.randomGreetings();
+          this.requestScrollToBottom();
+        }
+        showNotification(this.t('mainSessionArchived'), 'success');
+      }
+
+      this.showArchiveMainSessionDialog = false;
+      this.pendingArchiveMainConvId = null;
     },
-    openDeleteGroupDialog(group) {
-      if (!group?.id || group.id === 'default') return;
-      this.deleteGroupForm = {
-        id: group.id,
-        name: group.name || '',
-        conversationCount: this.conversations.filter(conv => (conv.groupId || 'default') === group.id).length,
-      };
-      this.showDeleteGroupDialog = true;
+    openResetMainSessionDialog(convId) {
+      this.pendingResetConvId = convId;
+      this.showResetMainSessionDialog = true;
     },
-    getDeleteGroupWarningText() {
-      const count = this.deleteGroupForm?.conversationCount || 0;
-      return String(this.t('deleteGroupWillDeleteChats')).replace('{count}', count);
+    async confirmResetMainSession() {
+      const convId = this.pendingResetConvId;
+      if (!convId) return;
+
+      try {
+        const resp = await fetch('/api/lover/reset-main-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ conversation_id: this.stringifyEntityId(convId) }),
+        });
+        if (!resp.ok) {
+          showNotification(this.t('resetFailed') || 'Reset failed', 'error');
+          this.showResetMainSessionDialog = false;
+          this.pendingResetConvId = null;
+          return;
+        }
+      } catch (e) {
+        showNotification(this.t('resetFailed') || 'Reset failed', 'error');
+        this.showResetMainSessionDialog = false;
+        this.pendingResetConvId = null;
+        return;
+      }
+
+      const conv = this.conversations.find(c => c.id === convId);
+      if (conv) {
+        conv.messages = [];
+        conv.timestamp = Date.now();
+      }
+
+      if (this.conversationId === convId) {
+        this.messages = [{ id: Date.now() + Math.random(), role: 'system', content: this.system_prompt }];
+        this.conversationId = null;
+        this.fileLinks = [];
+        this.randomGreetings();
+        this.requestScrollToBottom();
+      }
+
+      this.showResetMainSessionDialog = false;
+      this.pendingResetConvId = null;
+      showNotification(this.t('mainSessionReset'), 'success');
     },
+    returnToMainSession() {
+      const mainConv = this.mainConversation;
+      if (mainConv) {
+        this.loadConversation(mainConv.id);
+      } else {
+        const defaultGroup = this.groupedFilteredConversations?.find(g => g.id === 'default');
+        const firstConv = defaultGroup?.conversations?.[0];
+        if (firstConv) {
+          this.loadConversation(firstConv.id);
+        }
+      }
+    },
+
+    _generateArchiveFilePath(conv) {
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      const slug = (conv.title || 'untitled')
+        .toLowerCase()
+        .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 40);
+      return `lover/memory/${yyyy}/${mm}/${yyyy}-${mm}-${dd}-work-${slug}.md`;
+    },
+
+    _buildFallbackSummary(conv) {
+      const now = new Date();
+      const timeStr = now.toISOString().slice(0, 19).replace('T', ' ');
+      const lines = [
+        `# ${conv.title || 'Dev Session'}`,
+        '',
+        `- **归档时间**: ${timeStr}`,
+        `- **消息数**: ${(conv.messages?.length || 1) - 1}`,
+        '',
+        '> 自动生成的元信息摘要（AI 起草失败时降级）',
+      ];
+      return lines.join('\n');
+    },
+
+    openArchiveDevSessionDialog(convId) {
+      const conv = this.conversations.find(c => c.id === convId);
+      if (!conv) return;
+
+      this.archiveDevForm.convId = convId;
+      this.archiveDevForm.filePath = this._generateArchiveFilePath(conv);
+      this.archiveDevForm.summary = '';
+      this.archiveDevForm.generating = false;
+
+      if (this.devArchiveQuickSave) {
+        this.archiveDevForm.summary = this._buildFallbackSummary(conv);
+        this.confirmArchiveDevSession();
+        return;
+      }
+
+      this.showArchiveDevDialog = true;
+    },
+
+    async generateArchiveSummary() {
+      const convId = this.archiveDevForm.convId;
+      const conv = this.conversations.find(c => c.id === convId);
+      if (!conv || !conv.messages || conv.messages.length <= 1) {
+        this.archiveDevForm.summary = this._buildFallbackSummary(conv || { title: '' });
+        return;
+      }
+
+      this.archiveDevForm.generating = true;
+
+      try {
+        const recentMessages = conv.messages
+          .filter(m => m.role !== 'system')
+          .slice(-20)
+          .map(m => ({
+            role: m.role,
+            content: m.pure_content || m.content || '',
+          }));
+
+        const promptMsg = {
+          role: 'user',
+          content: [
+            '请基于以上对话内容，起草一段开发会话摘要（Markdown 格式），要求：',
+            '1. 标题用 `# <任务简述>`',
+            '2. 包含：关键产出/决策、未决问题（如有）',
+            '3. 简洁精炼，不超过 300 字',
+            '4. 仅输出摘要本身，不要额外解释',
+          ].join('\n'),
+        };
+
+        const response = await fetch('/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: this.mainAgent,
+            messages: [...recentMessages, promptMsg],
+            stream: false,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const content = data.choices?.[0]?.message?.content;
+          if (content && content.trim()) {
+            this.archiveDevForm.summary = content.trim();
+            return;
+          }
+        }
+
+        this.archiveDevForm.summary = this._buildFallbackSummary(conv);
+      } catch (err) {
+        console.error('Archive summary generation failed:', err);
+        this.archiveDevForm.summary = this._buildFallbackSummary(conv);
+      } finally {
+        this.archiveDevForm.generating = false;
+      }
+    },
+
+    async confirmArchiveDevSession() {
+      const { convId, summary, filePath } = this.archiveDevForm;
+      if (!convId || !summary.trim()) return;
+
+      try {
+        const resp = await fetch('/api/lover/archive-dev-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversation_id: this.stringifyEntityId(convId),
+            summary: summary.trim(),
+            file_path: filePath.trim(),
+          }),
+        });
+
+        const result = resp.ok ? await resp.json() : null;
+
+        const conv = this.conversations.find(c => c.id === convId);
+        if (conv) {
+          conv.groupId = 'archive';
+          conv.kind = 'archive';
+          conv.original_kind = 'dev';
+          conv.archived_at = Date.now();
+          conv.summary_path = result?.summary_path || filePath.trim();
+        }
+
+        if (this.conversationId === convId) {
+          this.returnToMainSession();
+        }
+
+        this.showArchiveDevDialog = false;
+        showNotification(this.t('devSessionArchived'), 'success');
+
+      } catch (err) {
+        console.error('Archive failed:', err);
+        showNotification(this.t('archiveFailed') || 'Archive failed', 'error');
+      }
+    },
+    // ────────────────────────────────────────────────────────────────
     async deleteConversationById(conversationId, options = {}) {
       const response = await fetch('/api/conversations/delete', {
         method: 'POST',
@@ -3041,6 +3264,9 @@ let vue_methods = {
                     messages: this.messages,
                     fileLinks: this.fileLinks,
                     system_prompt: this.system_prompt,
+                    kind: null,
+                    archived_at: null,
+                    summary_path: null,
                 };
                 this.conversations.unshift(newConv);
             } else {
