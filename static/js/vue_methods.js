@@ -1244,7 +1244,10 @@ let vue_methods = {
       }
       this._applyMessageBrieflyFlags();
       this.inAutoMode = false; // 重置自动模式状态
+      const prevForce = this.isForceScrollToBottom;
+      this.isForceScrollToBottom = true;
       this.requestScrollToBottom();
+      setTimeout(() => { this.isForceScrollToBottom = prevForce; }, 200);
       this.sendMessagesToExtension(); // 发送消息到插件
 
       this.autoSaveSettings();
@@ -1434,6 +1437,13 @@ let vue_methods = {
         this.activeMenu = key;
       }
       this.activeMenu = key;
+      if (key === 'home' && !this._chatInitScrolled) {
+        this._chatInitScrolled = true;
+        this.$nextTick(() => {
+          const container = this.$refs.messagesContainer;
+          if (container) container.scrollTop = container.scrollHeight;
+        });
+      }
     }, 
     toggleIcon() {
       this.isExpanded = !this.isExpanded; // 点击时切换状态
