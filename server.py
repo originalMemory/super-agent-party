@@ -7458,7 +7458,7 @@ class CreateDevRequest(BaseModel):
 class ArchiveDevRequest(BaseModel):
     conversation_id: Union[str, int, float]
     summary: str
-    file_path: str = ""
+    brief_title: str = ""
 
 @app.post("/api/lover/reset-main-session")
 async def reset_main_session(req: ResetMainRequest):
@@ -7526,7 +7526,7 @@ async def create_dev_session(req: CreateDevRequest):
 
 @app.post("/api/lover/archive-dev-session")
 async def archive_dev_session(req: ArchiveDevRequest):
-    """开发会话归档：落盘摘要文件 → 追加摘要消息（保留对话历史）→ 移入归档分组。"""
+    """开发会话归档：追加摘要消息到开发会话 + 注入主会话 → 移入归档分组。"""
     conv_id = _normalize_entity_id(req.conversation_id)
     covs = await load_covs()
     conversations = covs.get("conversations") or []
@@ -7534,45 +7534,79 @@ async def archive_dev_session(req: ArchiveDevRequest):
     if not conv:
         return JSONResponse(status_code=404, content={"success": False, "message": "Dev conversation not found"})
 
-    file_path = req.file_path.strip()
     summary = req.summary.strip()
-    written = False
-    if file_path and summary:
-        try:
-            from py.lover_memory_fts import lover_data_root
-            root = lover_data_root().resolve()
-            full_path = (root / file_path).resolve()
-            if not str(full_path).startswith(str(root)):
-                return JSONResponse(status_code=400, content={"success": False, "message": "Invalid file path"})
-            full_path.parent.mkdir(parents=True, exist_ok=True)
-            full_path.write_text(summary, encoding="utf-8")
-            written = True
-            logger.info("[archive] 摘要已落盘: %s", full_path)
-        except Exception as e:
-            logger.warning("[archive] 摘要落盘失败: %s", e)
+    brief_title = req.brief_title.strip()
+    now_ts = int(time.time() * 1000)
 
+    conv_title = conv.get("title") or "Dev Session"
+    conv_created = conv.get("timestamp") or now_ts
+    created_str = datetime.fromtimestamp(conv_created / 1000).strftime("%Y-%m-%d %H:%M")
+    archived_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    subtitle = brief_title or conv_title
+
+    # 开发会话内的摘要：直接用简述做标题
+    dev_summary_content = (
+        f"## 📋 {subtitle}\n\n"
+        f"> {created_str} → {archived_str}\n\n"
+        f"{summary}"
+    )
+
+    # 主会话注入的摘要：说明来源
+    main_summary_content = (
+        f"## 📋 来自开发会话「{conv_title}」的摘要\n\n"
+        f"> {subtitle}\n"
+        f"> \n"
+        f"> {created_str} → {archived_str}\n\n"
+        f"{summary}"
+    )
+
+    dev_summary_msg = None
     if summary:
-        summary_msg = {
+        dev_summary_msg = {
             "id": shortuuid.ShortUUID().random(length=12),
             "role": "assistant",
-            "content": f"## 📋 开发会话摘要\n\n{summary}",
-            "pure_content": f"## 📋 开发会话摘要\n\n{summary}",
-            "timestamp": int(time.time() * 1000),
+            "content": dev_summary_content,
+            "pure_content": dev_summary_content,
+            "timestamp": now_ts,
             "is_archive_summary": True,
         }
         messages = conv.get("messages") or []
-        messages.append(summary_msg)
+        messages.append(dev_summary_msg)
         conv["messages"] = messages
 
     conv["original_kind"] = "dev"
     conv["kind"] = "archive"
     conv["groupId"] = "archive"
-    conv["archived_at"] = int(time.time() * 1000)
-    conv["summary_path"] = file_path if written else None
+    conv["archived_at"] = now_ts
+
+    main_conv = next(
+        (c for c in conversations if c.get("kind") == "main" and (c.get("groupId") or "default") == "default"),
+        None,
+    )
+    main_summary_msg = None
+    if main_conv and summary:
+        main_summary_msg = {
+            "id": shortuuid.ShortUUID().random(length=12),
+            "role": "assistant",
+            "content": main_summary_content,
+            "pure_content": main_summary_content,
+            "timestamp": now_ts,
+            "is_dev_summary": True,
+            "source_conv_id": conv_id,
+        }
+        main_messages = main_conv.get("messages") or []
+        main_messages.append(main_summary_msg)
+        main_conv["messages"] = main_messages
 
     covs["conversations"] = conversations
     await save_covs(covs)
-    return {"success": True, "written": written, "summary_path": conv["summary_path"]}
+    return {
+        "success": True,
+        "dev_summary_msg": dev_summary_msg,
+        "main_summary_msg": main_summary_msg,
+        "main_conv_id": main_conv["id"] if main_conv else None,
+    }
 
 @app.post("/api/group-memory/clear-group")
 async def clear_group_memory_endpoint(req: ClearGroupMemoryRequest):

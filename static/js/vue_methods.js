@@ -703,11 +703,14 @@ let vue_methods = {
     // ── Lover 会话管理 ──────────────────────────────────────────────
     openCreateDevSessionDialog() {
       this.newDevSessionForm = { title: '' };
+      this.creatingDevSession = false;
       this.showCreateDevSessionDialog = true;
     },
     async createDevConversation() {
-      this.showCreateDevSessionDialog = false;
+      if (this.creatingDevSession) return;
+      this.creatingDevSession = true;
       const title = this.newDevSessionForm.title?.trim() || '';
+      this.showCreateDevSessionDialog = false;
 
       try {
         const resp = await fetch('/api/lover/create-dev-session', {
@@ -720,13 +723,18 @@ let vue_methods = {
           const newConv = data.conversation;
           if (newConv) {
             this.conversations.unshift(newConv);
-            this.loadConversation(newConv.id);
+            await this.loadConversation(newConv.id);
+            this.randomGreetings();
             return;
           }
         }
-      } catch (_) {}
-
-      await this.startConversationInGroup('default');
+        showNotification(this.t('requestFailed') || 'Request failed', 'error');
+      } catch (e) {
+        console.warn('[lover] create-dev-session failed:', e);
+        showNotification(this.t('requestFailed') || 'Request failed', 'error');
+      } finally {
+        this.creatingDevSession = false;
+      }
     },
     openArchiveMainSessionDialog(convId) {
       this.pendingArchiveMainConvId = convId;
@@ -845,24 +853,24 @@ let vue_methods = {
       }
     },
 
-    _generateArchiveFilePath(conv) {
-      const now = new Date();
-      const yyyy = now.getFullYear();
-      const mm = String(now.getMonth() + 1).padStart(2, '0');
-      const dd = String(now.getDate()).padStart(2, '0');
-      const slug = (conv.title || 'untitled')
-        .toLowerCase()
-        .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 40);
-      return `lover/memory/${yyyy}/${mm}/${yyyy}-${mm}-${dd}-work-${slug}.md`;
+    _parseArchiveSummary(raw) {
+      const lines = raw.split('\n');
+      const firstLine = lines[0] || '';
+      const briefMatch = firstLine.match(/^简述[:：]\s*(.+)/);
+      if (briefMatch) {
+        this.archiveDevForm.briefTitle = briefMatch[1].trim();
+        this.archiveDevForm.summary = lines.slice(1).join('\n').replace(/^\n+/, '');
+      } else {
+        this.archiveDevForm.briefTitle = '';
+        this.archiveDevForm.summary = raw;
+      }
     },
 
     _buildFallbackSummary(conv) {
       const now = new Date();
       const timeStr = now.toISOString().slice(0, 19).replace('T', ' ');
       const lines = [
-        `# ${conv.title || 'Dev Session'}`,
+        `### 基本信息`,
         '',
         `- **归档时间**: ${timeStr}`,
         `- **消息数**: ${(conv.messages?.length || 1) - 1}`,
@@ -877,15 +885,9 @@ let vue_methods = {
       if (!conv) return;
 
       this.archiveDevForm.convId = convId;
-      this.archiveDevForm.filePath = this._generateArchiveFilePath(conv);
       this.archiveDevForm.summary = '';
+      this.archiveDevForm.briefTitle = '';
       this.archiveDevForm.generating = false;
-
-      if (this.devArchiveQuickSave) {
-        this.archiveDevForm.summary = this._buildFallbackSummary(conv);
-        this.confirmArchiveDevSession();
-        return;
-      }
 
       this.showArchiveDevDialog = true;
     },
@@ -913,8 +915,8 @@ let vue_methods = {
           role: 'user',
           content: [
             '请基于以上对话内容，起草一段开发会话摘要（Markdown 格式），要求：',
-            '1. 标题用 `# <任务简述>`',
-            '2. 包含：关键产出/决策、未决问题（如有）',
+            '1. 第一行输出 `简述: xxx`（一句话概括本次会话做了什么，纯文本，不带 Markdown 标记）',
+            '2. 空一行后以 `###` 分节开始，如 `### 关键产出/决策`、`### 未决问题`',
             '3. 简洁精炼，不超过 300 字',
             '4. 仅输出摘要本身，不要额外解释',
           ].join('\n'),
@@ -934,7 +936,7 @@ let vue_methods = {
           const data = await response.json();
           const content = data.choices?.[0]?.message?.content;
           if (content && content.trim()) {
-            this.archiveDevForm.summary = content.trim();
+            this._parseArchiveSummary(content.trim());
             return;
           }
         }
@@ -949,7 +951,7 @@ let vue_methods = {
     },
 
     async confirmArchiveDevSession() {
-      const { convId, summary, filePath } = this.archiveDevForm;
+      const { convId, summary, briefTitle } = this.archiveDevForm;
       if (!convId || !summary.trim()) return;
 
       try {
@@ -959,7 +961,7 @@ let vue_methods = {
           body: JSON.stringify({
             conversation_id: this.stringifyEntityId(convId),
             summary: summary.trim(),
-            file_path: filePath.trim(),
+            brief_title: (briefTitle || '').trim(),
           }),
         });
 
@@ -971,13 +973,27 @@ let vue_methods = {
           conv.kind = 'archive';
           conv.original_kind = 'dev';
           conv.archived_at = Date.now();
-          conv.summary_path = result?.summary_path || filePath.trim();
+          if (result?.dev_summary_msg) {
+            const devMsgs = conv.messages || [];
+            devMsgs.push(result.dev_summary_msg);
+            conv.messages = devMsgs;
+          }
+        }
+
+        if (result?.main_summary_msg && result?.main_conv_id) {
+          const mainConv = this.conversations.find(c => c.id === result.main_conv_id);
+          if (mainConv) {
+            const mainMsgs = mainConv.messages || [];
+            mainMsgs.push(result.main_summary_msg);
+            mainConv.messages = mainMsgs;
+          }
         }
 
         if (this.conversationId === convId) {
           this.returnToMainSession();
         }
 
+        await this.saveConversations();
         this.showArchiveDevDialog = false;
         showNotification(this.t('devSessionArchived'), 'success');
 
@@ -1214,8 +1230,8 @@ let vue_methods = {
       if (conversation) {
         console.log("convid:"+convId);
         this.conversationId = convId;
-        this.messages = [...conversation.messages];
-        this.fileLinks = conversation.fileLinks;
+        this.messages = [...(conversation.messages || [])];
+        this.fileLinks = conversation.fileLinks || [];
         this.mainAgent = conversation.mainAgent;
         this.showHistoryDialog = false;
         this.system_prompt = conversation.system_prompt?conversation.system_prompt:" ";

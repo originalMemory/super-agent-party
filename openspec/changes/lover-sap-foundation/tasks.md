@@ -59,11 +59,12 @@
 
 ## 9. 摘要回流
 
-- [ ] 9.1 开发会话归档时 Agent 起草摘要 → 弹窗确认 → 落盘 `{memoryDirPath}/YYYY/MM/<YYYY-MM-DD>-work-<slug>.md`
-- [ ] 9.2 落盘后追加摘要消息（保留原有消息历史），写入 `summary_path`，移入归档分组
-- [ ] 9.3 落盘后下一轮 `sync_memory_index` 将摘要纳入 FTS 索引
-- [ ] 9.4 起草失败降级：仅含元信息的摘要文件
-- [ ] 9.5 `memorySettings.devArchiveQuickSave` 开关（默认 false）
+- [x] 9.1 开发会话归档时 Agent 起草摘要 → 弹窗确认
+- [x] 9.2 归档后追加摘要消息到开发会话（保留原有消息历史），移入归档分组
+- [x] 9.3 归档后将带有会话名+起止时间的摘要注入主会话，便于后续回顾
+- [x] 9.4 起草失败降级：仅含元信息的摘要（`_buildFallbackSummary`）
+- [x] ~~9.5 `devArchiveQuickSave` 开关~~ — 已移除（不再落盘文件，无需快速保存）
+- [x] ~~9.x 落盘到 `.md` + FTS 索引~~ — 已移除（摘要直接注入主会话，主会话后续支持落盘日记）
 
 ## 10. 文档
 
@@ -90,4 +91,4 @@
 - [ ] S.9 AI 工具 `update_memory_notes`：修改全局 memoryNotes 后 save_settings 生效；`update_character_card` 修改 name 被拒绝
 - [ ] S.10 自定义日记树路径：配置 `memoryDirPath` 后 FTS 索引切换到新目录
 - [ ] S.11 主会话归档与重置；归档会话只读浏览；`original_kind` 正确标记
-- [ ] S.12 开发会话归档弹窗 → 落盘摘要 → 追加摘要消息 → FTS 收录
+- [ ] S.12 开发会话归档弹窗 → 追加摘要消息到开发会话 → 注入主会话

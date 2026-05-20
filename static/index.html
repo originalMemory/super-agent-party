@@ -2993,19 +2993,24 @@ function updateElement(el, rawMarkdown, formatFn) {
           v-model="showCreateDevSessionDialog"
           :title="t('newDevSession')"
           width="420px"
+          :close-on-click-modal="false"
         >
-          <el-form label-position="top">
+          <el-form label-position="top" @submit.prevent>
             <el-form-item :label="t('devSessionTitle')">
               <el-input
                 v-model="newDevSessionForm.title"
                 :placeholder="t('devSessionTitlePlaceholder')"
-                @keyup.enter="createDevConversation"
+                @keydown.enter.prevent="createDevConversation"
               ></el-input>
             </el-form-item>
           </el-form>
           <template #footer>
             <el-button @click="showCreateDevSessionDialog = false">{{ t('cancel') }}</el-button>
-            <el-button type="primary" @click="createDevConversation">{{ t('create') }}</el-button>
+            <el-button
+              type="primary"
+              :loading="creatingDevSession"
+              @click="createDevConversation"
+            >{{ t('create') }}</el-button>
           </template>
         </el-dialog>
 
@@ -3060,14 +3065,9 @@ function updateElement(el, rawMarkdown, formatFn) {
                 <span v-if="archiveDevForm.generating" style="font-size: 12px; opacity: 0.6;">{{ t('draftingInProgress') }}</span>
               </div>
             </el-form-item>
-            <el-form-item :label="t('archiveFilePathLabel')">
-              <el-input v-model="archiveDevForm.filePath" :placeholder="t('archiveFilePathPlaceholder')"></el-input>
-              <div style="font-size: 11px; opacity: 0.5; margin-top: 2px;">{{ t('archiveFilePathHint') }}</div>
-            </el-form-item>
-            <el-form-item>
-              <el-checkbox v-model="devArchiveQuickSave">{{ t('devArchiveQuickSaveLabel') }}</el-checkbox>
-              <div style="font-size: 11px; opacity: 0.5;">{{ t('devArchiveQuickSaveHint') }}</div>
-            </el-form-item>
+            <div style="font-size: 12px; opacity: 0.6; margin-top: 4px;">
+              <i class="fa-solid fa-circle-info" style="margin-right: 4px;"></i>{{ t('archiveDevSummaryToMainHint') }}
+            </div>
           </el-form>
           <template #footer>
             <el-button @click="showArchiveDevDialog = false">{{ t('cancel') }}</el-button>
