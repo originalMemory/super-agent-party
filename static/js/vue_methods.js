@@ -700,6 +700,172 @@ let vue_methods = {
       this.randomGreetings();
       this._applyMessageBrieflyFlags();
     },
+    // ── 桌面主动感知（勿用 _ 前缀：Vue 模板无法访问 _ 开头方法）────
+    _getDefaultMainConversation() {
+      this.ensureConversationGroups();
+      return this.mainConversation;
+    },
+    _syncCurrentConversationToStore() {
+      if (!this.conversationId) return;
+      const conv = this.conversations.find(c => c.id === this.conversationId);
+      if (conv) {
+        conv.messages = this.messages;
+        conv.fileLinks = this.fileLinks;
+      }
+    },
+    _appendAwarenessMessageToMainSession(msg) {
+      const mainConv = this._getDefaultMainConversation();
+      if (!mainConv) return false;
+      if (!Array.isArray(mainConv.messages)) mainConv.messages = [];
+
+      // 只写入主会话数据；不碰当前正在查看的其它会话
+      mainConv.messages.push(msg);
+      mainConv.timestamp = msg.timestamp || Date.now();
+
+      const viewingMain = this.conversationId === mainConv.id;
+      if (viewingMain) {
+        // loadConversation 用 [...] 复制时，需单独同步 UI 数组（勿重复 push）
+        if (mainConv.messages !== this.messages) {
+          this.messages.push(msg);
+        }
+        this.requestScrollToBottom();
+      }
+      return true;
+    },
+    startDesktopAwarenessTimer() {
+      this.stopDesktopAwarenessTimer();
+      if (!this.desktopAwareness?.enabled) return;
+      const intervalMs = (this.desktopAwareness.intervalMinutes || 60) * 60 * 1000;
+      this.$options._desktopAwarenessTimer = setInterval(() => {
+        this.runDesktopAwarenessCheck();
+      }, intervalMs);
+      console.log(`[desktop-awareness] 定时器已启动，间隔 ${this.desktopAwareness.intervalMinutes} 分钟`);
+    },
+    stopDesktopAwarenessTimer() {
+      if (this.$options._desktopAwarenessTimer) {
+        clearInterval(this.$options._desktopAwarenessTimer);
+        this.$options._desktopAwarenessTimer = null;
+      }
+    },
+    async runDesktopAwarenessCheck(options = {}) {
+      const { force = false, notify = true } = options;
+      if (this.isSending) {
+        if (notify) showNotification(this.t('desktopAwarenessBusySending') || '正在发送消息，请稍后再试', 'warning');
+        return;
+      }
+      if (this.$options._awarenessInFlight) return;
+      this.$options._awarenessInFlight = true;
+      console.log('[desktop-awareness] 执行桌面感知检查...', force ? '(force)' : '');
+      try {
+        const resp = await fetch('/api/lover/desktop-awareness-check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force }),
+        });
+        if (!resp.ok) {
+          if (notify) showNotification(this.t('desktopAwarenessCheckFailed') || '桌面感知请求失败', 'error');
+          return;
+        }
+        const result = await resp.json();
+        if (!result.success) {
+          const msg = result.message || (this.t('desktopAwarenessCheckFailed') || '检查失败');
+          console.warn('[desktop-awareness] 检查失败:', msg);
+          if (notify) showNotification(msg, 'error');
+          return;
+        }
+        if (result.skipped) {
+          console.log('[desktop-awareness] 近期有对话活动，跳过:', result.message || '');
+          if (notify) showNotification(this.t('desktopAwarenessSkippedQuiet') || '免打扰窗口内，已跳过本次感知', 'info');
+          return;
+        }
+        if (result.action_needed && result.reply) {
+          const msg = {
+            id: Date.now() + Math.random(),
+            role: 'assistant',
+            content: result.reply,
+            pure_content: result.reply,
+            timestamp: result.timestamp || Date.now(),
+            is_awareness: true,
+          };
+          if (!this._appendAwarenessMessageToMainSession(msg)) {
+            console.warn('[desktop-awareness] 未找到主会话，无法写入关心消息');
+            if (notify) showNotification(this.t('desktopAwarenessNoMainConv') || '未找到主会话', 'error');
+            return;
+          }
+          await this.saveConversations();
+          if (notify) showNotification(this.t('desktopAwarenessActionDone') || '已写入主动关心消息', 'success');
+          if (this.conversationId !== this.mainConversation?.id) {
+            showNotification(this.t('desktopAwarenessSeeMainConv') || '请切换到主会话查看', 'info');
+          }
+          return;
+        }
+        if (notify) showNotification(this.t('desktopAwarenessNoAction') || '本次无需主动关心（模型判定无需打扰）', 'info');
+      } catch (e) {
+        console.warn('[desktop-awareness] 请求异常:', e);
+        if (notify) showNotification(this.t('desktopAwarenessCheckFailed') || '桌面感知请求异常', 'error');
+      } finally {
+        this.$options._awarenessInFlight = false;
+      }
+    },
+    // ── 心跳机制 (HEARTBEAT) ────────────────────────────────────────
+    async runHeartbeatCheck(options = {}) {
+      const { force = false, notify = true } = options;
+      if (this.isSending) {
+        if (notify) showNotification(this.t('heartbeatBusySending') || '正在发送消息，请稍后再试', 'warning');
+        return;
+      }
+      if (this.$options._heartbeatInFlight) return;
+      this.$options._heartbeatInFlight = true;
+      console.log('[heartbeat] 执行心跳检查...', force ? '(force)' : '');
+      try {
+        const resp = await fetch('/api/lover/heartbeat-check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force }),
+        });
+        if (!resp.ok) {
+          if (notify) showNotification(this.t('heartbeatCheckFailed') || '心跳请求失败', 'error');
+          return;
+        }
+        const result = await resp.json();
+        if (!result.success) {
+          const msg = result.message || (this.t('heartbeatCheckFailed') || '心跳检查失败');
+          console.warn('[heartbeat] 检查失败:', msg);
+          if (notify) showNotification(msg, 'error');
+          return;
+        }
+        if (result.skipped) {
+          console.log('[heartbeat] 跳过:', result.reason);
+          if (notify) showNotification(this.t('heartbeatSkippedQuiet') || '免打扰窗口内，已跳过', 'info');
+          return;
+        }
+        if (result.action_needed) {
+          if (notify) showNotification(this.t('heartbeatActionDone') || '心跳已触发主动消息', 'success');
+          const mainConv = this._getDefaultMainConversation();
+          if (mainConv && this.conversationId !== mainConv.id) {
+            showNotification(this.t('heartbeatSeeMainConv') || '请切换到主会话查看', 'info');
+          }
+          return;
+        }
+        if (notify) showNotification(this.t('heartbeatNoAction') || '本次心跳无需行动', 'info');
+      } catch (e) {
+        console.warn('[heartbeat] 请求异常:', e);
+        if (notify) showNotification(this.t('heartbeatCheckFailed') || '心跳请求异常', 'error');
+      } finally {
+        this.$options._heartbeatInFlight = false;
+      }
+    },
+    _handleHeartbeatMessage(data) {
+      if (!data || !data.message) return;
+      const { conversationId, message } = data;
+      const mainConv = this._getDefaultMainConversation();
+      if (!mainConv || mainConv.id !== conversationId) return;
+
+      const existing = (mainConv.messages || []).find(m => m.id === message.id);
+      if (existing) return;
+
+      this._appendAwarenessMessageToMainSession(message);
+    },
     // ── Lover 会话管理 ──────────────────────────────────────────────
     openCreateDevSessionDialog() {
       this.newDevSessionForm = { title: '' };
@@ -2136,6 +2302,7 @@ let vue_methods = {
           this.acpSettings = data.data.acpSettings || this.acpSettings;
           this.visionControlSettings = data.data.visionControlSettings || this.visionControlSettings;
           this.loveSettings = data.data.loveSettings || this.loveSettings;
+          this.desktopAwareness = data.data.desktopAwareness || this.desktopAwareness;
           this.ccSettings = data.data.ccSettings || this.ccSettings;
           this.qcSettings = data.data.qcSettings || this.qcSettings;
           this.dsSettings = data.data.dsSettings || this.dsSettings;
@@ -2210,6 +2377,7 @@ let vue_methods = {
           this.acpSettings = data.data.acpSettings || this.acpSettings;
           this.visionControlSettings = data.data.visionControlSettings || this.visionControlSettings;
           this.loveSettings = data.data.loveSettings || this.loveSettings;
+          this.desktopAwareness = data.data.desktopAwareness || this.desktopAwareness;
           this.ccSettings = data.data.ccSettings || this.ccSettings;
           this.qcSettings = data.data.qcSettings || this.qcSettings;
           this.dsSettings = data.data.dsSettings || this.dsSettings;
@@ -2305,6 +2473,7 @@ let vue_methods = {
             this.startASR();
           }
           if (this.activeMenu === 'home') this.startDriverGuide();
+          this.startDesktopAwarenessTimer();
         } 
           // 在 initWebSocket() 的 onmessage 逻辑中添加
           else if (data.type === 'task_notification') {
@@ -2315,6 +2484,9 @@ let vue_methods = {
           if (!data.success) {
             showNotification(this.t('settings_save_failed'), 'error');
           }
+        }
+        else if (data.type === 'heartbeat_message') {
+          this._handleHeartbeatMessage(data.data);
         }
         // 新增：处理用户输入更新
         else if (data.type === 'update_user_input') {
@@ -4056,6 +4228,7 @@ let vue_methods = {
           acpSettings: this.acpSettings,
           visionControlSettings: this.visionControlSettings,
           loveSettings: this.loveSettings,
+          desktopAwareness: this.desktopAwareness,
           ccSettings: this.ccSettings,
           qcSettings: this.qcSettings,
           dsSettings: this.dsSettings,

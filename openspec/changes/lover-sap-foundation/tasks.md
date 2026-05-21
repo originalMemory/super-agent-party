@@ -65,18 +65,23 @@
 - [x] 9.4 起草失败降级：仅含元信息的摘要（`_buildFallbackSummary`）
 - [x] ~~9.5 `devArchiveQuickSave` 开关~~ — 已移除（不再落盘文件，无需快速保存）
 - [x] ~~9.x 落盘到 `.md` + FTS 索引~~ — 已移除（摘要直接注入主会话，主会话后续支持落盘日记）
+- [ ] 9.6 开发会话归档起止时间修复：当前摘要用 `conv.timestamp` 作开始时间，但该字段每次保存会被刷新为最后活动时间，导致显示为「最后活动 → 归档」而非「创建 → 归档」。待新增 `created_at`（创建 dev 会话时写入、不再更新），归档摘要用 `created_at` → `archived_at`；`timestamp` 继续仅表示最后活动/列表排序
 
 ## 10. 文档
 
 - [x] 10.1 更新 `docs/CHARACTER_CARD.md`：补充 `soul`、`userProfile`、`memoryNotes`（全局）字段说明 + AI 工具说明
 - [x] 10.2 更新 `docs/LOVER_SSOT.md`：与新方案对齐（memoryNotes 全局化 + FTS 日记树 + AI 工具）
+- [x] 10.3 `docs/LOVER_SSOT.md`：补充人格注入 token 说明、消息元数据（`timestamp` / `is_awareness` / 摘要布尔 / 规划 `messageKind`）
 
 ## 11. 可选增强（backlog）
 
-- [ ] 11.1 桌面主动感知
-- [ ] 11.2 心跳机制（OpenClaw HEARTBEAT）
+- [x] 11.1 桌面主动感知
+- [x] 11.2 心跳机制（OpenClaw HEARTBEAT）：后端 asyncio 定时器 + `POST /api/lover/heartbeat-check` + 安全工具白名单 + `HEARTBEAT.md` 动态文件 + WebSocket 广播
 - [ ] 11.3 角色卡导入/导出适配新字段
 - [ ] 11.4 「重建索引」按钮（FTS 索引损坏时手动触发）
+- [ ] 11.5 uploaded_files 目录清理：当前截图（desktopVision、tool 截图、桌面感知）只增不减，`clean_temp_files_task` 仅清理 `TOOL_TEMP_DIR`，未覆盖 `uploaded_files`；待决定策略（定期清超期文件 or 调用完即删）后统一处理
+- [ ] 11.6 消息时间戳：所有新建/写入 `messages[]` 的路径统一设置 `timestamp`（ms）；`getSanitizedConversations` 保留落库；前端气泡旁展示时间（复用 `formatConversationTime` 或同类格式化）；老消息缺字段时 UI 降级不显示或按会话 `conv.timestamp` 推断
+- [ ] 11.7 消息来源 UI 区分：将 `is_awareness` / `is_heartbeat` / `is_dev_summary` / `is_archive_summary` 收敛为统一字符串枚举字段 `messageKind`（枚举值：`chat` | `desktop_awareness` | `heartbeat` | `dev_summary` | `archive_summary`，见 `docs/LOVER_SSOT.md`「消息元数据」）；写入路径（桌面感知、心跳、开发会话归档 API）统一只写 `messageKind`；渲染、i18n 一并改造；加载旧数据时按布尔字段回填 `messageKind`
 
 ## 冒烟测试
 

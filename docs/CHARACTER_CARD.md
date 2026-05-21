@@ -180,6 +180,7 @@
 
 - 本文描述 **SAP 通用角色卡（memories）** 通路。
 - **multiLovers** 分支在角色卡基础上引入 OpenClaw 式人设分层（soul / userProfile / memoryNotes），见 `docs/LOVER_SSOT.md`。
+- 会话消息上的 **`timestamp` / `messageKind`（及过渡期的 `is_awareness` 等）**、桌面感知与归档摘要 UI 约定，见 `docs/LOVER_SSOT.md` 章节「消息元数据」。
 
 ## 相关代码索引
 

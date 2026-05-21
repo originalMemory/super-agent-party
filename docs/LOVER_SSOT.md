@@ -14,6 +14,7 @@
 | **IDENTITY.md**（叙事身份） | `memories[i].description` + `personality` + `systemPrompt`（已有字段覆盖） | settings JSON |
 | **USER.md**（用户档案） | `memorySettings.userProfile`（新增字段，全局共享） | settings JSON |
 | **MEMORY.md**（长期记忆） | `memorySettings.memoryNotes`（新增字段，全局共享） | settings JSON |
+| **HEARTBEAT.md**（心跳任务） | `lover/HEARTBEAT.md` 文件（动态，心跳时注入） | 文件系统 |
 | **AGENTS.md**（操作约束） | 全局 `system_prompt` + 工作区 `.agent/AGENTS.md`（已有通路） | 现有路径不变 |
 
 ## 字段职责
@@ -86,6 +87,89 @@
 | `update_memory_notes` | 修改全局记忆笔记 | 需用户审批 |
 
 使用场景：AI 发现用户新事实 → 更新 memoryNotes（全局）；AI 根据反馈调整 soul / personality。
+
+## 心跳机制（OpenClaw HEARTBEAT）
+
+**后端 asyncio 定时器**周期性调用 LLM，让 Agent 在用户沉默时有机会主动说话或调用工具。
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `heartbeat.enabled` | `false` | 总开关 |
+| `heartbeat.intervalMinutes` | `30` | 心跳间隔（分钟） |
+| `heartbeat.skipWindowMinutes` | `10` | 免打扰窗口：主分组内有活动则跳过 |
+| `heartbeat.prompt` | `""` | 自定义心跳 prompt，空则使用默认 |
+| `heartbeat.enableTools` | `true` | 心跳时是否允许 LLM 调用工具 |
+| `heartbeat.maxToolRounds` | `20` | 最多工具调用轮数（上限 50） |
+
+- **HEARTBEAT.md**：`lover/HEARTBEAT.md` 文件存在时，内容注入 system prompt `## 心跳任务 (HEARTBEAT)` 区块
+- **安全工具白名单**：`get_character_card`、`update_character_card`、`update_user_profile`、`update_memory_notes`、`DDGsearch`、`searxng`、`time`、`get_weather`、`get_weather_by_city`
+- **写入路径**：后端直接 `save_covs` + WebSocket `heartbeat_message` 广播；前端收到后追加到主会话 UI
+- **与桌面感知区别**：心跳无截图、用主模型而非视觉模型、定时器在后端（不依赖浏览器）、支持工具调用
+
+## 人格注入与 Token（设计说明）
+
+**期望**：所有经 `/v1/chat/completions` 的对话（含 bot 行为推送、非流式 API）均走完整角色卡注入，以保持人格一致。
+
+**常驻 `.md` / 配置块**（`USER.md`、`SOUL.md`、`MEMORY.md` 及 settings 中的 `userProfile` / `memoryNotes` / `soul` 等）单文件通常为几 KB 量级。按中文约 1.5–2 字符/token 粗算，三者合计多在 **约 1k–3k tokens** 以内（视实际字数而定），相对 `description`、世界书命中、`## 相关回忆` FTS 片段、mem0 召回仍属可控开销。空字段会跳过，不注入。
+
+**动态部分**才更占 token：世界书按关键词命中追加、每轮 FTS top-N、mem0 JSON、工具/视觉等 system 追加。长期记忆「文件不大」的判断主要针对常驻层；若需对 bot 关闭 FTS/mem0，可后续按 `is_app_bot` 做可选裁剪（当前未做）。
+
+## 消息元数据（`conversations.db` 内 `messages[]`）
+
+消息对象随会话经 WebSocket `save_conversations` → `save_covs()` 整包 JSON 落库。`getSanitizedConversations` 用 `...rest` 保留未列入剥离名单的字段（含下文元数据）。
+
+### 时间戳 `timestamp`
+
+| 状态 | 说明 |
+|------|------|
+| **已有** | 开发会话归档摘要、桌面主动感知写入的消息带 `timestamp`（ms） |
+| **缺失** | 普通 `sendMessage` 用户/assistant 流式消息**尚未**统一写入 |
+| **会话级** | `conv.timestamp` 在发送结束、删消息等路径会更新，用于列表排序与免打扰窗口；`conversation_last_activity_ms` 会 `max(conv.timestamp, 各 msg.timestamp)` |
+
+后续任务 **11.6**：所有消息路径补齐 `timestamp`，前端气泡展示时间。
+
+### 来源区分（UI 待做）
+
+当前用**多个布尔字段**区分非普通聊天消息（摘要此前已有字段，只是前端未做样式）：
+
+| 字段 | 写入位置 | 含义 |
+|------|----------|------|
+| `is_awareness: true` | 前端 `runDesktopAwarenessCheck` → 主会话 | 桌面主动感知关心语 |
+| `is_heartbeat: true` | 后端 `heartbeat_check` → 主会话 | 心跳机制主动消息 |
+| `is_dev_summary: true` | `POST /api/lover/archive-dev-session` → **主会话** | 开发会话归档摘要回流 |
+| `is_archive_summary: true` | 同上 API → **归档中的 dev 会话**末尾 | 该 dev 会话内的归档摘要块 |
+| `source_conv_id` | 仅 `is_dev_summary` 主会话消息 | 来源 dev 会话 id |
+
+老数据无上述字段 → 按普通 assistant 渲染即可。
+
+### 建议统一：`messageKind`（字符串）
+
+后续任务 **11.7** 建议收敛为单一字段，避免布尔组合爆炸，并便于 i18n / 样式映射：
+
+| `messageKind` | 替代现状 | UI 意图 |
+|---------------|----------|---------|
+| `chat` | 默认（无标记） | 普通对话 |
+| `desktop_awareness` | `is_awareness` | 桌面感知主动关心 |
+| `heartbeat` | `is_heartbeat` | 心跳机制主动消息 |
+| `dev_summary` | `is_dev_summary` | 主会话中的开发归档摘要 |
+| `archive_summary` | `is_archive_summary` | 归档 dev 会话内摘要 |
+
+**兼容加载**（渲染或 `load_covs` 后规范化一次即可）：
+
+```javascript
+function resolveMessageKind(msg) {
+  if (msg.messageKind) return msg.messageKind;
+  if (msg.is_awareness) return 'desktop_awareness';
+  if (msg.is_heartbeat) return 'heartbeat';
+  if (msg.is_dev_summary) return 'dev_summary';
+  if (msg.is_archive_summary) return 'archive_summary';
+  return 'chat';
+}
+```
+
+新写入只设 `messageKind`；旧布尔可保留只读一段时间，或迁移脚本写回后删除。
+
+`is_awareness` 在实现统一前仍会以布尔形式写入；文档与任务以本表为准。
 
 ## 兼容性
 

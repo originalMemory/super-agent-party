@@ -378,6 +378,19 @@ from py.ClaudeAsOpenAI import AsyncClaudeAsOpenAI
 from py.GeminiAsOpenAI import AsyncGeminiAsOpenAI
 from py.get_setting import EXT_DIR, IS_DOCKER, SKILLS_DIR, _copy_default_skills, convert_to_opus_simple, load_covs, load_settings, save_covs,save_settings,clean_temp_files_task,base_path,configure_host_port,UPLOAD_FILES_DIR,AGENT_DIR,MEMORY_CACHE_DIR,KB_DIR,DEFAULT_VRM_DIR,USER_DATA_DIR,LOG_DIR,TOOL_TEMP_DIR,COVS_PATH
 from py.llm_tool import get_image_base64,get_image_media_type
+from py.lover_system_context import (
+    append_character_card_context,
+    build_lover_system_messages,
+    desktop_awareness_skip_window_ms,
+    get_default_main_conversation,
+    heartbeat_skip_window_ms,
+    is_awareness_no_action,
+    is_default_group_recently_active,
+    last_user_and_assistant_text,
+    message_text_content,
+    read_heartbeat_md,
+    select_recent_chat_messages,
+)
 timetamp = time.time()
 log_path = os.path.join(LOG_DIR, f"backend_{timetamp}.log")
 
@@ -932,6 +945,26 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logging.getLogger(__name__).warning("[FTS] 启动索引失败（非致命）: %s", e)
 
+    # --- [心跳定时器] ---
+    global _heartbeat_task
+
+    async def _heartbeat_periodic_loop():
+        while True:
+            cfg = await load_settings()
+            hb_cfg = cfg.get("heartbeat") or {}
+            interval_min = max(1, int(hb_cfg.get("intervalMinutes", 30)))
+            await asyncio.sleep(interval_min * 60)
+            fresh = await load_settings()
+            hb_cfg = fresh.get("heartbeat") or {}
+            if not hb_cfg.get("enabled"):
+                continue
+            try:
+                await _run_heartbeat_check(force=False)
+            except Exception as exc:
+                logging.getLogger(__name__).warning("[heartbeat] 定时心跳异常: %s", exc)
+
+    _heartbeat_task = asyncio.create_task(_heartbeat_periodic_loop())
+
     # --- [启动完成] ---
     yield
 
@@ -944,6 +977,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"防休眠停止异常: {e}")
 
+    if _heartbeat_task:
+        _heartbeat_task.cancel()
     if _fts_sync_task:
         _fts_sync_task.cancel()
     if scheduler_task:
@@ -3734,155 +3769,33 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
             # 修复字符串拼接错误
             content_append(request.messages, 'system', fileLinks_message)
             source_prompt += fileLinks_message
-        user_prompt = request.messages[-1].get('content') or ""
-        if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != ""  and not request.is_sub_agent:
-            _user_name = settings["memorySettings"].get("userName", "")
-            _char_name = cur_memory["name"] if cur_memory else ""
+        user_prompt, assistant_reply = last_user_and_assistant_text(request.messages)
+        _user_msgs = [m for m in request.messages if m.get("role") == "user"]
+        await append_character_card_context(
+            request.messages,
+            settings,
+            user_prompt=user_prompt,
+            assistant_reply=assistant_reply,
+            include_fts=True,
+            include_diary_summary=len(_user_msgs) <= 1,
+            is_sub_agent=bool(request.is_sub_agent),
+        )
 
-            from py.lover_memory_fts import lover_data_root as _lover_root
-            _lover_dir = _lover_root()
-
-            def _read_lover_file(name: str) -> str:
-                p = _lover_dir / name
-                if p.is_file():
-                    try:
-                        return p.read_text(encoding="utf-8", errors="replace").strip()
-                    except Exception:
-                        pass
-                return ""
-
-            _user_profile = _read_lover_file("USER.md") or settings["memorySettings"].get("userProfile", "")
-            if _user_profile:
-                _user_profile = _user_profile.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
-                content_append(request.messages, 'system', "\n## 用户档案\n" + _user_profile + "\n")
-
-            _soul = _read_lover_file("SOUL.md") or (cur_memory.get("soul", "") if cur_memory else "")
-            if _soul:
-                _soul = _soul.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
-                content_append(request.messages, 'system', "\n## 元层原则\n" + _soul + "\n")
-
-            if settings["memorySettings"]["userName"]:
-                print("添加用户名：\n\n" + settings["memorySettings"]["userName"] + "\n\n用户名结束\n\n")
-                content_append(request.messages, 'system', "与你交流的默认用户名为：\n\n" + settings["memorySettings"]["userName"] + "\n\n注意！除非用户消息中提到了是其他用户发送，否则视为默认用户发送的消息\n\n")
-            lore_content = ""
-            assistant_reply = ""
-            # 找出request.messages中上次的assistant回复
-            for i in range(len(request.messages)-1, -1, -1):
-                if request.messages[i]['role'] == 'assistant':
-                    assistant_reply = request.messages[i]['content']
-                    break
-            if cur_memory["characterBook"]:
-                for lore in cur_memory["characterBook"]:
-                    # lore['keysRaw'] 按照换行符分割，并去除空字符串
-                    lore_keys = lore["keysRaw"].split("\n")
-                    lore_keys = [key for key in lore_keys if key != ""]
-                    print(lore_keys)
-                    # 如果lore_keys不为空，并且lore_keys的任意一个元素在user_prompt或者assistant_reply中，则添加lore['content']到lore_content中
-                    if lore_keys != [] and any(key in user_prompt or key in assistant_reply for key in lore_keys):
-                        lore_content += lore['content'] + "\n\n"
-            if lore_content:
-                if settings["memorySettings"]["userName"]:
-                    # 替换lore_content中的{{user}}为settings["memorySettings"]["userName"]
-                    lore_content = lore_content.replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换lore_content中的{{char}}为cur_memory["name"]
-                lore_content = lore_content.replace("{{char}}", cur_memory["name"])
-                print("添加世界观设定：\n\n" + lore_content + "\n\n世界观设定结束\n\n")
-                content_append(request.messages, 'system', "世界观设定：\n\n" + lore_content + "\n\n世界观设定结束\n\n")
-            if cur_memory["description"]:
-                if settings["memorySettings"]["userName"]:
-                    # 替换cur_memory["description"]中的{{user}}为settings["memorySettings"]["userName"]
-                    cur_memory["description"] = cur_memory["description"].replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换cur_memory["description"]中的{{char}}为cur_memory["name"]
-                cur_memory["description"] = cur_memory["description"].replace("{{char}}", cur_memory["name"])
-                print("添加角色设定：\n\n" + cur_memory["description"] + "\n\n角色设定结束\n\n")
-                content_append(request.messages, 'system', "角色设定：\n\n" + cur_memory["description"] + "\n\n角色设定结束\n\n")
-            if cur_memory["personality"]:
-                if settings["memorySettings"]["userName"]:
-                    # 替换cur_memory["personality"]中的{{user}}为settings["memorySettings"]["userName"]
-                    cur_memory["personality"] = cur_memory["personality"].replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换cur_memory["personality"]中的{{char}}为cur_memory["name"]
-                cur_memory["personality"] = cur_memory["personality"].replace("{{char}}", cur_memory["name"])
-                print("添加性格设定：\n\n" + cur_memory["personality"] + "\n\n性格设定结束\n\n")
-                content_append(request.messages, 'system', "性格设定：\n\n" + cur_memory["personality"] + "\n\n性格设定结束\n\n") 
-            if cur_memory['mesExample']:
-                if settings["memorySettings"]["userName"]:
-                    # 替换cur_memory["mesExample"]中的{{user}}为settings["memorySettings"]["userName"]
-                    cur_memory["mesExample"] = cur_memory["mesExample"].replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换cur_memory["mesExample"]中的{{char}}为cur_memory["name"]
-                cur_memory["mesExample"] = cur_memory["mesExample"].replace("{{char}}", cur_memory["name"])
-                print("添加对话示例：\n\n" + cur_memory['mesExample'] + "\n\n对话示例结束\n\n")
-                content_append(request.messages, 'system', "对话示例：\n\n" + cur_memory['mesExample'] + "\n\n对话示例结束\n\n")
-            if cur_memory["systemPrompt"]:
-                if settings["memorySettings"]["userName"]:
-                    # 替换cur_memory["systemPrompt"]中的{{user}}为settings["memorySettings"]["userName"]
-                    cur_memory["systemPrompt"] = cur_memory["systemPrompt"].replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换cur_memory["systemPrompt"]中的{{char}}为cur_memory["name"]
-                cur_memory["systemPrompt"] = cur_memory["systemPrompt"].replace("{{char}}", cur_memory["name"])
-                content_append(request.messages, 'system', "\n\n" + cur_memory["systemPrompt"] + "\n\n")
-            if settings["memorySettings"]["genericSystemPrompt"]:
-                if settings["memorySettings"]["userName"]:
-                    # 替换settings["memorySettings"]["genericSystemPrompt"]中的{{user}}为settings["memorySettings"]["userName"]
-                    settings["memorySettings"]["genericSystemPrompt"] = settings["memorySettings"]["genericSystemPrompt"].replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换cur_memory["systemPrompt"]中的{{char}}为cur_memory["name"]
-                settings["memorySettings"]["genericSystemPrompt"] = settings["memorySettings"]["genericSystemPrompt"].replace("{{char}}", cur_memory["name"])
-                content_append(request.messages, 'system', "\n\n" + settings["memorySettings"]["genericSystemPrompt"] + "\n\n")
-            _memory_notes = _read_lover_file("MEMORY.md") or settings["memorySettings"].get("memoryNotes", "")
-            if _memory_notes:
-                _memory_notes = _memory_notes.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
-                content_append(request.messages, 'system', "\n## 记忆笔记\n" + _memory_notes + "\n")
-
-            if not request.is_sub_agent:
-                try:
-                    from py.lover_memory_fts import search_memory, workspace_root_from_settings as fts_ws, lover_memory_options as fts_opts
-                    _fts_ws = fts_ws(settings)
-                    if _fts_ws and _fts_ws.is_dir():
-                        _fts_results = await asyncio.to_thread(
-                            search_memory, _fts_ws, user_prompt, 6, fts_opts(settings)
-                        )
-                        if _fts_results:
-                            _fts_block = "\n## 相关回忆\n"
-                            for hit in _fts_results:
-                                _fts_block += f"- [{hit['path']}] {hit['snippet']}\n"
-                            content_append(request.messages, 'system', _fts_block)
-                except Exception as _fts_err:
-                    print(f"[FTS] 检索异常: {_fts_err}")
-
-            # 新会话首轮：注入近期日记概要（frontmatter 概要/心情，不含启动指令）
-            if not request.is_sub_agent:
-                _user_msgs = [m for m in request.messages if m.get("role") == "user"]
-                if len(_user_msgs) <= 1:
-                    try:
-                        from py.lover_diary_summary import build_recent_diary_summary
-                        from py.lover_memory_fts import workspace_root_from_settings as _diary_ws
-                        _diary_root = _diary_ws(settings)
-                        if _diary_root and _diary_root.is_dir():
-                            _diary_days = 7
-                            _diary_block = await asyncio.to_thread(
-                                build_recent_diary_summary, _diary_root, _diary_days
-                            )
-                            if _diary_block:
-                                content_append(request.messages, 'system', "\n" + _diary_block)
-                                logger.info("[日记概要] 已注入近 %d 天日记概要", _diary_days)
-                    except Exception as _diary_err:
-                        logger.warning("[日记概要] 注入失败: %s", _diary_err)
-
-            if m0 and not request.is_sub_agent:
-                memoryLimit = settings["memorySettings"]["memoryLimit"]
-                try:
-                    # 【核心修改】：使用 asyncio.to_thread 将同步的 search 方法放入线程池运行
-                    # 这样主线程（Event Loop）会被释放，可以去处理 /minilm/embeddings 请求，从而避免死锁
-                    relevant_memories = await asyncio.to_thread(
-                        m0.search, 
-                        query=user_prompt, 
-                        user_id=memoryId, 
-                        limit=memoryLimit
-                    )
-                    relevant_memories = json.dumps(relevant_memories, ensure_ascii=False)
-                except Exception as e:
-                    print("m0.search error:",e)
-                    relevant_memories = ""
-                print("添加相关记忆：\n\n" + relevant_memories + "\n\n相关结束\n\n")
-                content_append(request.messages, 'system', "之前的相关记忆：\n\n" + relevant_memories + "\n\n相关结束\n\n")                   
+        if m0 and not request.is_sub_agent:
+            memoryLimit = settings["memorySettings"]["memoryLimit"]
+            try:
+                relevant_memories = await asyncio.to_thread(
+                    m0.search,
+                    query=user_prompt,
+                    user_id=memoryId,
+                    limit=memoryLimit
+                )
+                relevant_memories = json.dumps(relevant_memories, ensure_ascii=False)
+            except Exception as e:
+                print("m0.search error:", e)
+                relevant_memories = ""
+            print("添加相关记忆：\n\n" + relevant_memories + "\n\n相关结束\n\n")
+            content_append(request.messages, 'system', "之前的相关记忆：\n\n" + relevant_memories + "\n\n相关结束\n\n")
         request = await tools_change_messages(request, settings)
         # 如果系统消息为空字符串或者仅包含空白符，则将系统消息改成"you are a helpful assistant."
         if request.messages[0]['role'] == 'system' and not request.messages[0]['content'].strip():
@@ -5976,93 +5889,33 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
             # 修复字符串拼接错误
             content_append(request.messages, 'system', system_message)
         kb_list = []
-        user_prompt = request.messages[-1].get('content') or ""
-        if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and settings["memorySettings"]["selectedMemory"] != "":
-            if settings["memorySettings"]["userName"] and settings["memorySettings"]["userName"] != "user":
-                print("添加用户名：\n\n" + settings["memorySettings"]["userName"] + "\n\n用户名结束\n\n")
-                content_append(request.messages, 'system', "当前与你交流的人的名字为：\n\n" + settings["memorySettings"]["userName"] + "\n\n")
-            lore_content = ""
-            assistant_reply = ""
-            # 找出request.messages中上次的assistant回复
-            for i in range(len(request.messages)-1, -1, -1):
-                if request.messages[i]['role'] == 'assistant':
-                    assistant_reply = request.messages[i]['content']
-                    break
-            if cur_memory["characterBook"]:
-                for lore in cur_memory["characterBook"]:
-                    # lore['keysRaw'] 按照换行符分割，并去除空字符串
-                    lore_keys = lore["keysRaw"].split("\n")
-                    lore_keys = [key for key in lore_keys if key != ""]
-                    print(lore_keys)
-                    # 如果lore_keys不为空，并且lore_keys的任意一个元素在user_prompt或者assistant_reply中，则添加lore['content']到lore_content中
-                    if lore_keys != [] and any(key in user_prompt or key in assistant_reply for key in lore_keys):
-                        lore_content += lore['content'] + "\n\n"
-            if lore_content:
-                if settings["memorySettings"]["userName"]:
-                    # 替换lore_content中的{{user}}为settings["memorySettings"]["userName"]
-                    lore_content = lore_content.replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换lore_content中的{{char}}为cur_memory["name"]
-                lore_content = lore_content.replace("{{char}}", cur_memory["name"])
-                print("添加世界观设定：\n\n" + lore_content + "\n\n世界观设定结束\n\n")
-                content_append(request.messages, 'system', "世界观设定：\n\n" + lore_content + "\n\n世界观设定结束\n\n")
-            if cur_memory["description"]:
-                if settings["memorySettings"]["userName"]:
-                    # 替换cur_memory["description"]中的{{user}}为settings["memorySettings"]["userName"]
-                    cur_memory["description"] = cur_memory["description"].replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换cur_memory["description"]中的{{char}}为cur_memory["name"]
-                cur_memory["description"] = cur_memory["description"].replace("{{char}}", cur_memory["name"])
-                print("添加角色设定：\n\n" + cur_memory["description"] + "\n\n角色设定结束\n\n")
-                content_append(request.messages, 'system', "角色设定：\n\n" + cur_memory["description"] + "\n\n角色设定结束\n\n")
-            if cur_memory["personality"]:
-                if settings["memorySettings"]["userName"]:
-                    # 替换cur_memory["personality"]中的{{user}}为settings["memorySettings"]["userName"]
-                    cur_memory["personality"] = cur_memory["personality"].replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换cur_memory["personality"]中的{{char}}为cur_memory["name"]
-                cur_memory["personality"] = cur_memory["personality"].replace("{{char}}", cur_memory["name"])
-                print("添加性格设定：\n\n" + cur_memory["personality"] + "\n\n性格设定结束\n\n")
-                content_append(request.messages, 'system', "性格设定：\n\n" + cur_memory["personality"] + "\n\n性格设定结束\n\n") 
-            if cur_memory['mesExample']:
-                if settings["memorySettings"]["userName"]:
-                    # 替换cur_memory["mesExample"]中的{{user}}为settings["memorySettings"]["userName"]
-                    cur_memory["mesExample"] = cur_memory["mesExample"].replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换cur_memory["mesExample"]中的{{char}}为cur_memory["name"]
-                cur_memory["mesExample"] = cur_memory["mesExample"].replace("{{char}}", cur_memory["name"])
-                print("添加对话示例：\n\n" + cur_memory['mesExample'] + "\n\n对话示例结束\n\n")
-                content_append(request.messages, 'system', "对话示例：\n\n" + cur_memory['mesExample'] + "\n\n对话示例结束\n\n")
-            if cur_memory["systemPrompt"]:
-                if settings["memorySettings"]["userName"]:
-                    # 替换cur_memory["systemPrompt"]中的{{user}}为settings["memorySettings"]["userName"]
-                    cur_memory["systemPrompt"] = cur_memory["systemPrompt"].replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换cur_memory["systemPrompt"]中的{{char}}为cur_memory["name"]
-                cur_memory["systemPrompt"] = cur_memory["systemPrompt"].replace("{{char}}", cur_memory["name"])
-                print("添加系统提示：\n\n" + cur_memory["systemPrompt"] + "\n\n系统提示结束\n\n")
-                content_append(request.messages, 'system', "系统提示：\n\n" + cur_memory["systemPrompt"] + "\n\n系统提示结束\n\n")
-            if settings["memorySettings"]["genericSystemPrompt"]:
-                if settings["memorySettings"]["userName"]:
-                    # 替换settings["memorySettings"]["genericSystemPrompt"]中的{{user}}为settings["memorySettings"]["userName"]
-                    settings["memorySettings"]["genericSystemPrompt"] = settings["memorySettings"]["genericSystemPrompt"].replace("{{user}}", settings["memorySettings"]["userName"])
-                # 替换cur_memory["systemPrompt"]中的{{char}}为cur_memory["name"]
-                settings["memorySettings"]["genericSystemPrompt"] = settings["memorySettings"]["genericSystemPrompt"].replace("{{char}}", cur_memory["name"])
-                print("添加系统提示：\n\n" + settings["memorySettings"]["genericSystemPrompt"] + "\n\n系统提示结束\n\n")
-                content_append(request.messages, 'system', "系统提示：\n\n" + settings["memorySettings"]["genericSystemPrompt"] + "\n\n系统提示结束\n\n")
-                    
-            if m0:
-                memoryLimit = settings["memorySettings"]["memoryLimit"]
-                try:
-                    # 【核心修改】：使用 asyncio.to_thread 将同步的 search 方法放入线程池运行
-                    # 这样主线程（Event Loop）会被释放，可以去处理 /minilm/embeddings 请求，从而避免死锁
-                    relevant_memories = await asyncio.to_thread(
-                        m0.search, 
-                        query=user_prompt, 
-                        user_id=memoryId, 
-                        limit=memoryLimit
-                    )
-                    relevant_memories = json.dumps(relevant_memories, ensure_ascii=False)
-                except Exception as e:
-                    print("m0.search error:",e)
-                    relevant_memories = ""
-                print("添加相关记忆：\n\n" + relevant_memories + "\n\n相关结束\n\n")
-                content_append(request.messages, 'system', "之前的相关记忆：\n\n" + relevant_memories + "\n\n相关结束\n\n") 
+        user_prompt, assistant_reply = last_user_and_assistant_text(request.messages)
+        _user_msgs = [m for m in request.messages if m.get("role") == "user"]
+        await append_character_card_context(
+            request.messages,
+            settings,
+            user_prompt=user_prompt,
+            assistant_reply=assistant_reply,
+            include_fts=True,
+            include_diary_summary=len(_user_msgs) <= 1,
+            is_sub_agent=bool(getattr(request, "is_sub_agent", False)),
+        )
+
+        if m0 and not getattr(request, "is_sub_agent", False):
+            memoryLimit = settings["memorySettings"]["memoryLimit"]
+            try:
+                relevant_memories = await asyncio.to_thread(
+                    m0.search,
+                    query=user_prompt,
+                    user_id=memoryId,
+                    limit=memoryLimit
+                )
+                relevant_memories = json.dumps(relevant_memories, ensure_ascii=False)
+            except Exception as e:
+                print("m0.search error:", e)
+                relevant_memories = ""
+            print("添加相关记忆：\n\n" + relevant_memories + "\n\n相关结束\n\n")
+            content_append(request.messages, 'system', "之前的相关记忆：\n\n" + relevant_memories + "\n\n相关结束\n\n")
         if settings["knowledgeBases"]:
             for kb in settings["knowledgeBases"]:
                 if kb["enabled"] and kb["processingStatus"] == "completed":
@@ -7460,6 +7313,14 @@ class ArchiveDevRequest(BaseModel):
     summary: str
     brief_title: str = ""
 
+class DesktopAwarenessCheckRequest(BaseModel):
+    """force=True 时跳过免打扰窗口（供「立即测试」使用）。"""
+    force: bool = False
+
+class HeartbeatCheckRequest(BaseModel):
+    """force=True 时跳过免打扰窗口（供「立即测试」使用）。"""
+    force: bool = False
+
 @app.post("/api/lover/reset-main-session")
 async def reset_main_session(req: ResetMainRequest):
     conv_id = _normalize_entity_id(req.conversation_id)
@@ -7607,6 +7468,372 @@ async def archive_dev_session(req: ArchiveDevRequest):
         "main_summary_msg": main_summary_msg,
         "main_conv_id": main_conv["id"] if main_conv else None,
     }
+
+@app.post("/api/lover/desktop-awareness-check")
+async def desktop_awareness_check(req: DesktopAwarenessCheckRequest = DesktopAwarenessCheckRequest()):
+    """桌面主动感知：截图 → 发给视觉模型 → 判断是否需要主动关心。"""
+    settings = await load_settings()
+    da_cfg = settings.get("desktopAwareness") or {}
+    if not da_cfg.get("enabled"):
+        return {"success": False, "message": "Desktop awareness is disabled", "reason": "disabled"}
+
+    skip_window_ms = desktop_awareness_skip_window_ms(settings)
+    skip_window_minutes = skip_window_ms // 60000
+    covs = await load_covs()
+    conversations = covs.get("conversations") or []
+    main_conv = get_default_main_conversation(conversations)
+    if not req.force and is_default_group_recently_active(conversations, skip_window_ms):
+        logger.info("[desktop-awareness] 主分组 %s 分钟内仍有会话活动，跳过", skip_window_minutes)
+        return {
+            "success": True,
+            "skipped": True,
+            "action_needed": False,
+            "reply": "",
+            "timestamp": int(time.time() * 1000),
+            "message": "Recent conversation activity within skip window",
+            "reason": "skipped_quiet_period",
+        }
+
+    raw_messages = (main_conv or {}).get("messages") or []
+    user_prompt, assistant_reply = last_user_and_assistant_text(raw_messages)
+    recent_chat = select_recent_chat_messages(raw_messages, limit=20)
+
+    try:
+        import pyautogui
+        logical_width, logical_height = pyautogui.size()
+        screenshot = await asyncio.to_thread(pyautogui.screenshot)
+
+        target_w, target_h = scale_to_fit(logical_width, logical_height, 1280, 720)
+        if screenshot.width != target_w or screenshot.height != target_h:
+            screenshot = await asyncio.to_thread(
+                screenshot.resize, (target_w, target_h), Image.Resampling.LANCZOS
+            )
+
+        img_name = f"awareness_{uuid.uuid4().hex}.png"
+        img_path = os.path.join(UPLOAD_FILES_DIR, img_name)
+        await asyncio.to_thread(screenshot.save, img_path, optimize=True)
+
+        def _awareness_image_data_url(path: str) -> str:
+            with open(path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("ascii")
+            return f"data:image/png;base64,{b64}"
+
+        img_url = await asyncio.to_thread(_awareness_image_data_url, img_path)
+    except Exception as e:
+        logger.warning("[desktop-awareness] 截图失败: %s", e)
+        return {"success": False, "message": f"Screenshot failed: {e}"}
+
+    vision_model = settings.get("vision", {}).get("model") or settings.get("model", "")
+    if not vision_model:
+        return {"success": False, "message": "No vision model configured"}
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    awareness_prompt = (
+        "你正在进行一次定时桌面感知检查。以下是用户当前的桌面截图。\n\n"
+        f"当前时间：{now_str}\n\n"
+        "（上文已附带主会话最近对话记录，请结合截图与对话上下文判断。）\n\n"
+        "请根据截图与对话上下文判断：\n"
+        "1. 用户当前大概在做什么？\n"
+        "2. 是否有值得关心、提醒或聊几句的场景？（如深夜还在工作、长时间看视频、游戏、动画、小说等等）\n\n"
+        "如果你觉得**不需要打扰用户**，请仅回复 `[NO_ACTION]`，不要输出其他内容。\n"
+        "如果你觉得**适合主动说点什么**，请直接输出你想对用户说的话（自然、简短、符合你的人设）。"
+    )
+
+    messages = await build_lover_system_messages(
+        settings,
+        user_prompt=user_prompt,
+        assistant_reply=assistant_reply,
+        include_fts=bool(user_prompt),
+        include_diary_summary=False,
+    )
+    messages.extend(recent_chat)
+    messages.append({
+        "role": "user",
+        "content": [
+            {"type": "text", "text": awareness_prompt},
+            {"type": "image_url", "image_url": {"url": img_url}},
+        ],
+    })
+
+    try:
+        vision_cfg = settings.get("vision", {})
+        api_key = vision_cfg.get("api_key") or settings.get("api_key", "")
+        base_url = vision_cfg.get("base_url") or settings.get("base_url", "")
+        client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        response = await client.chat.completions.create(
+            model=vision_model,
+            messages=messages,
+            max_tokens=300,
+        )
+        reply = response.choices[0].message.content.strip() if response.choices else ""
+    except Exception as e:
+        logger.warning("[desktop-awareness] LLM 调用失败: %s", e)
+        return {"success": False, "message": f"LLM call failed: {e}"}
+
+    action_needed = not is_awareness_no_action(reply)
+    return {
+        "success": True,
+        "skipped": False,
+        "action_needed": action_needed,
+        "reply": reply if action_needed else "",
+        "timestamp": int(time.time() * 1000),
+        "reason": "action" if action_needed else "no_action",
+    }
+
+
+# ---------------------------------------------------------------------------
+#  心跳机制 (OpenClaw HEARTBEAT)
+# ---------------------------------------------------------------------------
+
+HEARTBEAT_SAFE_TOOLS = {
+    "get_character_card", "update_character_card",
+    "update_user_profile", "update_memory_notes",
+    "DDGsearch", "searxng",
+    "time", "get_weather", "get_weather_by_city",
+}
+
+_heartbeat_in_flight = False
+_heartbeat_task: asyncio.Task | None = None
+
+
+def _build_heartbeat_prompt(settings: dict, heartbeat_md: str) -> str:
+    hb_cfg = settings.get("heartbeat") or {}
+    custom = (hb_cfg.get("prompt") or "").strip()
+    if custom:
+        return custom
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    hb_section = ""
+    if heartbeat_md:
+        hb_section = f"\n---\n以下是你的心跳任务备忘（HEARTBEAT.md）：\n\n{heartbeat_md}\n---\n\n"
+
+    return (
+        f"你正在进行一次定时心跳检查。\n\n"
+        f"当前时间：{now_str}\n\n"
+        f"（上文已附带主会话最近对话记录，请结合对话上下文判断。）\n\n"
+        f"{hb_section}"
+        "你可以利用这次心跳做以下事情之一：\n"
+        "1. 主动关心用户、聊几句、分享想法（自然、简短、符合你的人设）\n"
+        "2. 使用工具完成你觉得有意义的事（比如写记忆笔记、查看日记等）\n"
+        "3. 如果你觉得现在不需要做任何事，请仅回复 `[NO_ACTION]`\n\n"
+        "请根据当前上下文自行判断。不要为了说话而说话，如果没什么好说的就 [NO_ACTION]。"
+    )
+
+
+def _collect_heartbeat_tools(settings: dict) -> list:
+    """收集心跳可用的安全工具 schema 列表。"""
+    tools: list = []
+    mem_settings = settings.get("memorySettings") or {}
+    if mem_settings.get("is_memory") and mem_settings.get("selectedMemory"):
+        from py.character_card_tools import (
+            get_character_card_tool,
+            update_character_card_tool,
+            update_memory_notes_tool,
+            update_user_profile_tool,
+        )
+        tools.extend([
+            get_character_card_tool,
+            update_character_card_tool,
+            update_memory_notes_tool,
+            update_user_profile_tool,
+        ])
+
+    web_search = settings.get("webSearch") or {}
+    if web_search.get("enabled"):
+        from py.web_search import duckduckgo_tool, searxng_tool
+        engine = web_search.get("engine", "")
+        if engine == "duckduckgo":
+            tools.append(duckduckgo_tool)
+        elif engine == "searxng":
+            tools.append(searxng_tool)
+
+    from py.utility_tools import time_tool, weather_tool, timer_weather_tool
+    tools.append(time_tool)
+    if settings.get("tools", {}).get("weather", {}).get("enabled"):
+        tools.append(weather_tool)
+        tools.append(timer_weather_tool)
+
+    return tools
+
+
+async def _execute_heartbeat_tool_calls(tool_calls, settings: dict) -> list[dict]:
+    """执行心跳 LLM 返回的 tool_calls，返回 tool result messages。"""
+    result_msgs: list[dict] = []
+    for tc in tool_calls:
+        fn = tc.function
+        tool_name = fn.name
+        if tool_name not in HEARTBEAT_SAFE_TOOLS:
+            result_msgs.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": f"[heartbeat] Tool '{tool_name}' is not allowed during heartbeat.",
+            })
+            continue
+        try:
+            import json as _json
+            args = _json.loads(fn.arguments) if isinstance(fn.arguments, str) else fn.arguments
+            result = await dispatch_tool(tool_name, args, settings)
+            content = result if isinstance(result, str) else _json.dumps(result, ensure_ascii=False, default=str)
+        except Exception as e:
+            content = f"Tool error: {e}"
+        result_msgs.append({
+            "role": "tool",
+            "tool_call_id": tc.id,
+            "content": content,
+        })
+    return result_msgs
+
+
+async def _heartbeat_write_and_broadcast(
+    reply: str, covs: dict, main_conv: dict, now_ms: int
+):
+    """将心跳消息写入主会话并广播到前端。"""
+    msg = {
+        "id": shortuuid.ShortUUID().random(length=12),
+        "role": "assistant",
+        "content": reply,
+        "pure_content": reply,
+        "timestamp": now_ms,
+        "is_heartbeat": True,
+    }
+    if not isinstance(main_conv.get("messages"), list):
+        main_conv["messages"] = []
+    main_conv["messages"].append(msg)
+    main_conv["timestamp"] = now_ms
+    await save_covs(covs)
+    await ws_manager.broadcast({
+        "type": "heartbeat_message",
+        "data": {
+            "conversationId": main_conv["id"],
+            "message": msg,
+        },
+    })
+    return msg
+
+
+async def _run_heartbeat_check(force: bool = False) -> dict:
+    """心跳核心逻辑，供 endpoint 和定时器共用。"""
+    global _heartbeat_in_flight
+    settings = await load_settings()
+    hb_cfg = settings.get("heartbeat") or {}
+    if not hb_cfg.get("enabled"):
+        return {"success": False, "message": "Heartbeat is disabled", "reason": "disabled"}
+
+    if _heartbeat_in_flight:
+        return {"success": True, "skipped": True, "action_needed": False,
+                "reply": "", "reason": "already_in_flight"}
+
+    skip_ms = heartbeat_skip_window_ms(settings)
+    covs = await load_covs()
+    conversations = covs.get("conversations") or []
+    main_conv = get_default_main_conversation(conversations)
+
+    if not force and is_default_group_recently_active(conversations, skip_ms):
+        skip_min = skip_ms // 60000
+        logger.info("[heartbeat] 主分组 %s 分钟内仍有会话活动，跳过", skip_min)
+        return {
+            "success": True, "skipped": True, "action_needed": False,
+            "reply": "", "timestamp": int(time.time() * 1000),
+            "reason": "skipped_quiet_period",
+        }
+
+    raw_messages = (main_conv or {}).get("messages") or []
+    user_prompt, assistant_reply = last_user_and_assistant_text(raw_messages)
+    recent_chat = select_recent_chat_messages(raw_messages, limit=20)
+
+    heartbeat_md = await read_heartbeat_md(settings)
+
+    messages = await build_lover_system_messages(
+        settings,
+        user_prompt=user_prompt,
+        assistant_reply=assistant_reply,
+        include_fts=bool(user_prompt),
+        include_diary_summary=False,
+    )
+    if heartbeat_md:
+        from py.lover_system_context import content_append
+        content_append(messages, "system", "\n## 心跳任务 (HEARTBEAT)\n" + heartbeat_md + "\n")
+    messages.extend(recent_chat)
+
+    hb_prompt = _build_heartbeat_prompt(settings, heartbeat_md)
+    messages.append({"role": "user", "content": hb_prompt})
+
+    model = settings.get("model", "")
+    api_key = settings.get("api_key", "")
+    base_url = settings.get("base_url", "")
+    if not model:
+        return {"success": False, "message": "No model configured"}
+
+    enable_tools = hb_cfg.get("enableTools", True)
+    max_tool_rounds = max(0, min(int(hb_cfg.get("maxToolRounds", 20)), 50))
+    tools = _collect_heartbeat_tools(settings) if enable_tools else []
+
+    _heartbeat_in_flight = True
+    try:
+        client_hb = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        call_kwargs: dict = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": 500,
+        }
+        if tools:
+            call_kwargs["tools"] = tools
+
+        reply = ""
+        for _round in range(max_tool_rounds + 1):
+            response = await client_hb.chat.completions.create(**call_kwargs)
+            choice = response.choices[0] if response.choices else None
+            if not choice:
+                break
+
+            msg_obj = choice.message
+            if msg_obj.tool_calls:
+                messages.append({
+                    "role": "assistant",
+                    "content": msg_obj.content,
+                    "tool_calls": [tc.model_dump() for tc in msg_obj.tool_calls],
+                })
+                tool_results = await _execute_heartbeat_tool_calls(
+                    msg_obj.tool_calls, settings
+                )
+                messages.extend(tool_results)
+                call_kwargs["messages"] = messages
+                continue
+
+            reply = (msg_obj.content or "").strip()
+            break
+
+    except Exception as e:
+        logger.warning("[heartbeat] LLM 调用失败: %s", e)
+        return {"success": False, "message": f"LLM call failed: {e}"}
+    finally:
+        _heartbeat_in_flight = False
+
+    action_needed = not is_awareness_no_action(reply)
+    now_ms = int(time.time() * 1000)
+
+    if action_needed and main_conv:
+        covs = await load_covs()
+        conversations = covs.get("conversations") or []
+        main_conv = get_default_main_conversation(conversations)
+        if main_conv:
+            await _heartbeat_write_and_broadcast(reply, covs, main_conv, now_ms)
+
+    return {
+        "success": True,
+        "skipped": False,
+        "action_needed": action_needed,
+        "reply": reply if action_needed else "",
+        "timestamp": now_ms,
+        "reason": "action" if action_needed else "no_action",
+    }
+
+
+@app.post("/api/lover/heartbeat-check")
+async def heartbeat_check(req: HeartbeatCheckRequest = HeartbeatCheckRequest()):
+    """心跳机制：周期性调用 LLM，让 Agent 有机会主动说话或调用工具。"""
+    return await _run_heartbeat_check(force=req.force)
+
 
 @app.post("/api/group-memory/clear-group")
 async def clear_group_memory_endpoint(req: ClearGroupMemoryRequest):
