@@ -2484,6 +2484,7 @@ let vue_methods = {
           this.customHttpTools = data.data.custom_http || this.customHttpTools;
           this.isGroupMode = data.data.isGroupMode || this.isGroupMode;
           this.selectedGroupAgents = data.data.selectedGroupAgents || this.selectedGroupAgents;
+          this.heartbeat = data.data.heartbeat || this.heartbeat;
           // 初始化时确保数据一致性
           this.edgettsLanguage = this.ttsSettings.edgettsLanguage;
           this.edgettsGender = this.ttsSettings.edgettsGender;
@@ -4312,6 +4313,7 @@ let vue_methods = {
           searchEngine: this.searchEngine,
           isGroupMode: this.isGroupMode,
           selectedGroupAgents: this.selectedGroupAgents,
+          heartbeat: this.heartbeat,
         };
         const correlationId = uuid.v4();
         // 发送保存请求

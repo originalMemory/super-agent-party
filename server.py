@@ -949,19 +949,23 @@ async def lifespan(app: FastAPI):
     global _heartbeat_task
 
     async def _heartbeat_periodic_loop():
+        _hb_logger = logging.getLogger(__name__)
         while True:
             cfg = await load_settings()
             hb_cfg = cfg.get("heartbeat") or {}
             interval_min = max(1, int(hb_cfg.get("intervalMinutes", 30)))
+            _hb_logger.info("[heartbeat] 定时器启动，将在 %d 分钟后触发", interval_min)
             await asyncio.sleep(interval_min * 60)
             fresh = await load_settings()
             hb_cfg = fresh.get("heartbeat") or {}
             if not hb_cfg.get("enabled"):
+                _hb_logger.info("[heartbeat] 定时器触发，但心跳已禁用，跳过")
                 continue
+            _hb_logger.info("[heartbeat] 定时器触发，开始心跳检查")
             try:
                 await _run_heartbeat_check(force=False)
             except Exception as exc:
-                logging.getLogger(__name__).warning("[heartbeat] 定时心跳异常: %s", exc)
+                _hb_logger.warning("[heartbeat] 定时心跳异常: %s", exc)
 
     _heartbeat_task = asyncio.create_task(_heartbeat_periodic_loop())
 
@@ -7503,6 +7507,24 @@ async def desktop_awareness_check(req: DesktopAwarenessCheckRequest = DesktopAwa
         logical_width, logical_height = pyautogui.size()
         screenshot = await asyncio.to_thread(pyautogui.screenshot)
 
+        def _is_screen_blank(img: Image.Image, threshold: int = 5) -> bool:
+            """Detect blank (all-black) screenshots caused by locked/sleeping display."""
+            small = img.resize((64, 64), Image.Resampling.BILINEAR)
+            pixels = list(small.getdata())
+            avg = sum(sum(p[:3]) / 3 for p in pixels) / len(pixels)
+            return avg < threshold
+
+        if await asyncio.to_thread(_is_screen_blank, screenshot):
+            logger.info("[desktop-awareness] 截图全黑（屏幕可能已锁定/息屏），跳过")
+            return {
+                "success": True,
+                "skipped": True,
+                "action_needed": False,
+                "reply": "",
+                "timestamp": int(time.time() * 1000),
+                "reason": "screen_off",
+            }
+
         target_w, target_h = scale_to_fit(logical_width, logical_height, 1280, 720)
         if screenshot.width != target_w or screenshot.height != target_h:
             screenshot = await asyncio.to_thread(
@@ -7714,12 +7736,15 @@ async def _heartbeat_write_and_broadcast(
 async def _run_heartbeat_check(force: bool = False) -> dict:
     """心跳核心逻辑，供 endpoint 和定时器共用。"""
     global _heartbeat_in_flight
+    logger.info("[heartbeat] 开始心跳检查 (force=%s)", force)
     settings = await load_settings()
     hb_cfg = settings.get("heartbeat") or {}
     if not hb_cfg.get("enabled"):
+        logger.info("[heartbeat] 已禁用，跳过")
         return {"success": False, "message": "Heartbeat is disabled", "reason": "disabled"}
 
     if _heartbeat_in_flight:
+        logger.info("[heartbeat] 上次心跳仍在执行，跳过")
         return {"success": True, "skipped": True, "action_needed": False,
                 "reply": "", "reason": "already_in_flight"}
 
@@ -7762,11 +7787,13 @@ async def _run_heartbeat_check(force: bool = False) -> dict:
     api_key = settings.get("api_key", "")
     base_url = settings.get("base_url", "")
     if not model:
+        logger.warning("[heartbeat] 未配置 model，跳过")
         return {"success": False, "message": "No model configured"}
 
     enable_tools = hb_cfg.get("enableTools", True)
     max_tool_rounds = max(0, min(int(hb_cfg.get("maxToolRounds", 20)), 50))
     tools = _collect_heartbeat_tools(settings) if enable_tools else []
+    logger.info("[heartbeat] 调用 LLM (model=%s, tools=%d个, max_rounds=%d)", model, len(tools), max_tool_rounds)
 
     _heartbeat_in_flight = True
     try:
@@ -7812,12 +7839,18 @@ async def _run_heartbeat_check(force: bool = False) -> dict:
     action_needed = not is_awareness_no_action(reply)
     now_ms = int(time.time() * 1000)
 
+    if not action_needed:
+        logger.info("[heartbeat] LLM 判定无需行动 (NO_ACTION)，reply=%r", reply[:80] if reply else "")
+    else:
+        logger.info("[heartbeat] LLM 决定主动发言，写入主会话")
+
     if action_needed and main_conv:
         covs = await load_covs()
         conversations = covs.get("conversations") or []
         main_conv = get_default_main_conversation(conversations)
         if main_conv:
             await _heartbeat_write_and_broadcast(reply, covs, main_conv, now_ms)
+            logger.info("[heartbeat] 消息已写入并广播")
 
     return {
         "success": True,

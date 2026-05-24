@@ -88,6 +88,15 @@
 
 使用场景：AI 发现用户新事实 → 更新 memoryNotes（全局）；AI 根据反馈调整 soul / personality。
 
+## 桌面主动感知（Desktop Awareness）
+
+**前端定时器**触发截图 → 发给视觉模型 → 判断是否需要主动关心（如深夜加班、久坐等）。
+
+- **截图方式**：`pyautogui.screenshot()` → 缩放到 1280×720 → base64 发送
+- **息屏检测**：截图后计算 64×64 缩略图的像素平均亮度；若低于阈值（≈全黑）则判定为锁屏/息屏状态，跳过本次感知（返回 `reason: "screen_off"`），不保存图片、不调用 LLM。macOS 下 `Cmd+Ctrl+Q` 锁屏后显示器关闭时，`screencapture` API 仍会"成功"返回纯黑帧，此检测避免浪费 token 和存储
+- **跳过条件**：主分组内近期有会话活动（`skip_window_ms`）/ 屏幕全黑 / 功能未启用
+- **与心跳区别**：感知有截图、用视觉模型、定时器在前端；心跳无截图、用主模型、定时器在后端、支持工具调用
+
 ## 心跳机制（OpenClaw HEARTBEAT）
 
 **后端 asyncio 定时器**周期性调用 LLM，让 Agent 在用户沉默时有机会主动说话或调用工具。
@@ -104,7 +113,7 @@
 - **HEARTBEAT.md**：`lover/HEARTBEAT.md` 文件存在时，内容注入 system prompt `## 心跳任务 (HEARTBEAT)` 区块
 - **安全工具白名单**：`get_character_card`、`update_character_card`、`update_user_profile`、`update_memory_notes`、`DDGsearch`、`searxng`、`time`、`get_weather`、`get_weather_by_city`
 - **写入路径**：后端直接 `save_covs` + WebSocket `heartbeat_message` 广播；前端收到后追加到主会话 UI
-- **与桌面感知区别**：心跳无截图、用主模型而非视觉模型、定时器在后端（不依赖浏览器）、支持工具调用
+- **与桌面感知区别**：见上方「桌面主动感知」章节
 
 ## 人格注入与 Token（设计说明）
 
