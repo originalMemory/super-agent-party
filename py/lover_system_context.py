@@ -159,7 +159,6 @@ async def append_character_card_context(
     *,
     user_prompt: str = "",
     assistant_reply: str = "",
-    include_fts: bool = True,
     include_diary_summary: bool = False,
     is_sub_agent: bool = False,
 ) -> None:
@@ -269,27 +268,6 @@ async def append_character_card_context(
         _memory_notes = _memory_notes.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
         content_append(messages, "system", "\n## 记忆笔记\n" + _memory_notes + "\n")
 
-    if include_fts and user_prompt:
-        try:
-            from py.lover_memory_fts import (
-                lover_memory_options as fts_opts,
-                search_memory,
-                workspace_root_from_settings as fts_ws,
-            )
-
-            _fts_ws = fts_ws(settings)
-            if _fts_ws and _fts_ws.is_dir():
-                _fts_results = await asyncio.to_thread(
-                    search_memory, _fts_ws, user_prompt, 6, fts_opts(settings)
-                )
-                if _fts_results:
-                    _fts_block = "\n## 相关回忆\n"
-                    for hit in _fts_results:
-                        _fts_block += f"- [{hit['path']}] {hit['snippet']}\n"
-                    content_append(messages, "system", _fts_block)
-        except Exception as err:
-            logger.warning("[FTS] 检索异常: %s", err)
-
     if include_diary_summary:
         _user_msgs = [m for m in messages if m.get("role") == "user"]
         if len(_user_msgs) <= 1:
@@ -331,7 +309,6 @@ async def build_lover_system_messages(
     *,
     user_prompt: str = "",
     assistant_reply: str = "",
-    include_fts: bool = True,
     include_diary_summary: bool = False,
     is_sub_agent: bool = False,
 ) -> list:
@@ -343,11 +320,56 @@ async def build_lover_system_messages(
         settings,
         user_prompt=user_prompt,
         assistant_reply=assistant_reply,
-        include_fts=include_fts,
         include_diary_summary=include_diary_summary,
         is_sub_agent=is_sub_agent,
     )
     return messages
+
+
+FTS_DEFAULT_TOP_K = 10
+
+
+async def search_fts_for_context(
+    settings: dict, user_prompt: str, *, top_k: int = FTS_DEFAULT_TOP_K
+) -> str:
+    """执行 FTS 检索，返回格式化的相关回忆文本块；无结果或异常时返回空串。"""
+    if not user_prompt:
+        return ""
+    try:
+        from py.lover_memory_fts import (
+            lover_memory_options as fts_opts,
+            search_memory,
+            workspace_root_from_settings as fts_ws,
+        )
+
+        _fts_ws = fts_ws(settings)
+        if not (_fts_ws and _fts_ws.is_dir()):
+            return ""
+        _fts_results = await asyncio.to_thread(
+            search_memory, _fts_ws, user_prompt, top_k, fts_opts(settings)
+        )
+        if not _fts_results:
+            return ""
+        block = "## 相关回忆\n"
+        for hit in _fts_results:
+            block += f"- [{hit['path']}] {hit['snippet']}\n"
+        return block
+    except Exception as err:
+        logger.warning("[FTS] 检索异常: %s", err)
+        return ""
+
+
+def inject_fts_before_last_user(messages: list, fts_block: str) -> None:
+    """将 fts_block 作为独立 system 消息插入到最后一条 user 消息正前方。"""
+    if not fts_block:
+        return
+    last_user_idx = None
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].get("role") == "user":
+            last_user_idx = i
+            break
+    if last_user_idx is not None:
+        messages.insert(last_user_idx, {"role": "system", "content": fts_block})
 
 
 def last_user_and_assistant_text(raw_messages: list) -> tuple[str, str]:

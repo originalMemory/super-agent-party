@@ -384,11 +384,13 @@ from py.lover_system_context import (
     desktop_awareness_skip_window_ms,
     get_default_main_conversation,
     heartbeat_skip_window_ms,
+    inject_fts_before_last_user,
     is_awareness_no_action,
     is_default_group_recently_active,
     last_user_and_assistant_text,
     message_text_content,
     read_heartbeat_md,
+    search_fts_for_context,
     select_recent_chat_messages,
 )
 timetamp = time.time()
@@ -3781,10 +3783,12 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
             settings,
             user_prompt=user_prompt,
             assistant_reply=assistant_reply,
-            include_fts=True,
             include_diary_summary=len(_user_msgs) <= 1,
             is_sub_agent=bool(request.is_sub_agent),
         )
+
+        _fts_block = await search_fts_for_context(settings, user_prompt)
+        inject_fts_before_last_user(request.messages, _fts_block)
 
         if m0 and not request.is_sub_agent:
             memoryLimit = settings["memorySettings"]["memoryLimit"]
@@ -5901,10 +5905,12 @@ async def generate_complete_response(client,reasoner_client, request: ChatReques
             settings,
             user_prompt=user_prompt,
             assistant_reply=assistant_reply,
-            include_fts=True,
             include_diary_summary=len(_user_msgs) <= 1,
             is_sub_agent=bool(getattr(request, "is_sub_agent", False)),
         )
+
+        _fts_block = await search_fts_for_context(settings, user_prompt)
+        inject_fts_before_last_user(request.messages, _fts_block)
 
         if m0 and not getattr(request, "is_sub_agent", False):
             memoryLimit = settings["memorySettings"]["memoryLimit"]
@@ -7566,7 +7572,6 @@ async def desktop_awareness_check(req: DesktopAwarenessCheckRequest = DesktopAwa
         settings,
         user_prompt=user_prompt,
         assistant_reply=assistant_reply,
-        include_fts=bool(user_prompt),
         include_diary_summary=False,
     )
     messages.extend(recent_chat)
@@ -7773,7 +7778,6 @@ async def _run_heartbeat_check(force: bool = False) -> dict:
         settings,
         user_prompt=user_prompt,
         assistant_reply=assistant_reply,
-        include_fts=bool(user_prompt),
         include_diary_summary=False,
     )
     if heartbeat_md:
