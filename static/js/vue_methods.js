@@ -192,6 +192,14 @@ const ALL_ALLOWED_EXTENSIONS = [...new Set([
   ...ALLOWED_VIDEO_EXTENSIONS // 加入这里
 ])];
 
+const MessageKind = Object.freeze({
+  CHAT:              'chat',
+  DESKTOP_AWARENESS: 'desktopAwareness',
+  HEARTBEAT:         'heartbeat',
+  DEV_SUMMARY:       'devSummary',
+  ARCHIVE_SUMMARY:   'archiveSummary',
+});
+
 let vue_methods = {
   stringifyEntityId(value) {
     if (value === null || value === undefined || value === '') {
@@ -785,7 +793,7 @@ let vue_methods = {
             content: result.reply,
             pure_content: result.reply,
             timestamp: result.timestamp || Date.now(),
-            is_awareness: true,
+            messageKind: MessageKind.DESKTOP_AWARENESS,
           };
           if (!this._appendAwarenessMessageToMainSession(msg)) {
             console.warn('[desktop-awareness] 未找到主会话，无法写入关心消息');
@@ -1436,10 +1444,33 @@ let vue_methods = {
       if (!timestamp) return '';
       const date = new Date(timestamp);
       const now = new Date();
-      if (date.toDateString() === now.toDateString()) {
-        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      }
-      return date.toLocaleDateString([], { month: 'numeric', day: 'numeric' });
+      const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const startOfDate  = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      const diffDays = Math.round((startOfToday - startOfDate) / 86400000);
+
+      if (diffDays === 0) return timeStr;
+      if (diffDays === 1) return `${this.t('yesterday')} ${timeStr}`;
+      if (diffDays === 2) return `${this.t('dayBeforeYesterday')} ${timeStr}`;
+
+      const sameYear = date.getFullYear() === now.getFullYear();
+      const datePart = sameYear
+        ? date.toLocaleDateString([], { month: 'numeric', day: 'numeric' })
+        : date.toLocaleDateString([], { year: 'numeric', month: 'numeric', day: 'numeric' });
+      return `${datePart} ${timeStr}`;
+    },
+    resolveMessageKind(msg) {
+      return msg.messageKind || MessageKind.CHAT;
+    },
+    messageKindMeta(kind) {
+      const map = {
+        [MessageKind.DESKTOP_AWARENESS]: { icon: 'fa-desktop',     labelKey: 'kindDesktopAwareness' },
+        [MessageKind.HEARTBEAT]:         { icon: 'fa-heart-pulse', labelKey: 'kindHeartbeat' },
+        [MessageKind.DEV_SUMMARY]:       { icon: 'fa-code',        labelKey: 'kindDevSummary' },
+        [MessageKind.ARCHIVE_SUMMARY]:   { icon: 'fa-box-archive', labelKey: 'kindArchiveSummary' },
+      };
+      return map[kind] || null;
     },
     // 修改 getConversationPreview，移除沉重的 DOM/正则替换，改用极简截取
     getConversationPreview(conversation) {
@@ -2891,7 +2922,8 @@ let vue_methods = {
             fileLinks_content: fileLinks_content,
             imageLinks: imageLinks || [],
             hasDesktopVision: captureFlag, // ✨ 新增标记：告诉 UI 这条消息触发了后端截图
-            agentName: this.memorySettings.userName || 'User' 
+            agentName: this.memorySettings.userName || 'User',
+            timestamp: Date.now(),
         });
 
         this.sendMessagesToExtension();
@@ -3080,7 +3112,8 @@ let vue_methods = {
                 isOmni: this.settings.enableOmniTTS || this.fastSettings.enableOmniTTS,
                 omniAudioChunks: [], ttsChunks: [], chunks_voice: [], audioChunks: [],
                 isPlaying: false, total_tokens: 0, first_token_latency: 0, elapsedTime: 0,
-                generationFinished: false
+                generationFinished: false,
+                timestamp: Date.now(),
             };
             this.messages.push(newMsgData);
             currentMsg = this.messages[this.messages.length - 1];

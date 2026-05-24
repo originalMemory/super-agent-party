@@ -80,8 +80,8 @@
 - [x] 11.3 角色卡导入/导出适配新字段
 - [x] 11.4 「重建索引」按钮（FTS 索引损坏时手动触发）
 - [ ] 11.5 uploaded_files 目录清理：当前截图（desktopVision、tool 截图、桌面感知）只增不减，`clean_temp_files_task` 仅清理 `TOOL_TEMP_DIR`，未覆盖 `uploaded_files`；待决定策略（定期清超期文件 or 调用完即删）后统一处理
-- [ ] 11.6 消息时间戳：所有新建/写入 `messages[]` 的路径统一设置 `timestamp`（ms）；`getSanitizedConversations` 保留落库；前端气泡旁展示时间（复用 `formatConversationTime` 或同类格式化）；老消息缺字段时 UI 降级不显示或按会话 `conv.timestamp` 推断
-- [ ] 11.7 消息来源 UI 区分：将 `is_awareness` / `is_heartbeat` / `is_dev_summary` / `is_archive_summary` 收敛为统一字符串枚举字段 `messageKind`（枚举值：`chat` | `desktop_awareness` | `heartbeat` | `dev_summary` | `archive_summary`，见 `docs/LOVER_SSOT.md`「消息元数据」）；写入路径（桌面感知、心跳、开发会话归档 API）统一只写 `messageKind`；渲染、i18n 一并改造；加载旧数据时按布尔字段回填 `messageKind`
+- [x] 11.6 消息时间戳：所有新建/写入 `messages[]` 的路径统一设置 `timestamp`（ms）；`getSanitizedConversations` 保留落库；前端气泡旁展示时间（复用 `formatConversationTime` 或同类格式化）；老消息缺字段时 UI 降级不显示或按会话 `conv.timestamp` 推断
+- [x] 11.7 消息来源 UI 区分：将 `is_awareness` / `is_heartbeat` / `is_dev_summary` / `is_archive_summary` 收敛为统一字符串枚举字段 `messageKind`（枚举值：`chat` | `desktop_awareness` | `heartbeat` | `dev_summary` | `archive_summary`，见 `docs/LOVER_SSOT.md`「消息元数据」）；写入路径（桌面感知、心跳、开发会话归档 API）统一只写 `messageKind`；渲染、i18n 一并改造；旧数据通过 resolveMessageKind 回填（不考虑持久化）
 
 ## 冒烟测试
 

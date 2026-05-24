@@ -3604,6 +3604,12 @@ body {
   font-size: 14px;
   margin-left: 8px; /* 文字左侧也保持相同间距 */
 }
+.msg-timestamp {
+  font-size: 11px;
+  opacity: 0.45;
+  margin-left: 8px;
+  white-space: nowrap;
+}
 
 .message.assistant .tts-controls {
   background: var(--el-bg-color-page);
@@ -7686,6 +7692,17 @@ hr.footnotes-sep {
 .im-name-tag {
   font-size: 12px;
   color: var(--el-text-color-secondary);
+  margin-bottom: 4px;
+  margin-left: 1px;
+  line-height: 1;
+}
+.msg-kind-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--el-color-primary);
+  opacity: 0.7;
   margin-bottom: 4px;
   margin-left: 1px;
   line-height: 1;

@@ -7430,7 +7430,7 @@ async def archive_dev_session(req: ArchiveDevRequest):
             "content": dev_summary_content,
             "pure_content": dev_summary_content,
             "timestamp": now_ts,
-            "is_archive_summary": True,
+            "messageKind": "archiveSummary",
         }
         messages = conv.get("messages") or []
         messages.append(dev_summary_msg)
@@ -7453,7 +7453,7 @@ async def archive_dev_session(req: ArchiveDevRequest):
             "content": main_summary_content,
             "pure_content": main_summary_content,
             "timestamp": now_ts,
-            "is_dev_summary": True,
+            "messageKind": "devSummary",
             "source_conv_id": conv_id,
         }
         main_messages = main_conv.get("messages") or []
@@ -7694,7 +7694,7 @@ async def _heartbeat_write_and_broadcast(
         "content": reply,
         "pure_content": reply,
         "timestamp": now_ms,
-        "is_heartbeat": True,
+        "messageKind": "heartbeat",  # MessageKind.HEARTBEAT
     }
     if not isinstance(main_conv.get("messages"), list):
         main_conv["messages"] = []

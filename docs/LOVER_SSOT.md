@@ -128,48 +128,21 @@
 
 后续任务 **11.6**：所有消息路径补齐 `timestamp`，前端气泡展示时间。
 
-### 来源区分（UI 待做）
+### 消息来源区分：`messageKind`（字符串枚举，驼峰）
 
-当前用**多个布尔字段**区分非普通聊天消息（摘要此前已有字段，只是前端未做样式）：
+所有写入路径统一使用 `messageKind` 字段（不再使用旧布尔字段）：
 
-| 字段 | 写入位置 | 含义 |
-|------|----------|------|
-| `is_awareness: true` | 前端 `runDesktopAwarenessCheck` → 主会话 | 桌面主动感知关心语 |
-| `is_heartbeat: true` | 后端 `heartbeat_check` → 主会话 | 心跳机制主动消息 |
-| `is_dev_summary: true` | `POST /api/lover/archive-dev-session` → **主会话** | 开发会话归档摘要回流 |
-| `is_archive_summary: true` | 同上 API → **归档中的 dev 会话**末尾 | 该 dev 会话内的归档摘要块 |
-| `source_conv_id` | 仅 `is_dev_summary` 主会话消息 | 来源 dev 会话 id |
+| `messageKind` | 写入位置 | 含义 |
+|---------------|----------|------|
+| `chat`（默认，不写入） | 普通流式回复 | 普通对话 |
+| `desktopAwareness` | 前端 `runDesktopAwarenessCheck` → 主会话 | 桌面感知主动关心 |
+| `heartbeat` | 后端 `heartbeat_check` → 主会话 | 心跳机制主动消息 |
+| `devSummary` | `POST /api/lover/archive-dev-session` → **主会话** | 开发会话归档摘要回流 |
+| `archiveSummary` | 同上 API → **归档中的 dev 会话**末尾 | 该 dev 会话内的归档摘要块 |
 
-老数据无上述字段 → 按普通 assistant 渲染即可。
+`source_conv_id` 保留，仅 `devSummary` 主会话消息携带，表示来源 dev 会话 id。
 
-### 建议统一：`messageKind`（字符串）
-
-后续任务 **11.7** 建议收敛为单一字段，避免布尔组合爆炸，并便于 i18n / 样式映射：
-
-| `messageKind` | 替代现状 | UI 意图 |
-|---------------|----------|---------|
-| `chat` | 默认（无标记） | 普通对话 |
-| `desktop_awareness` | `is_awareness` | 桌面感知主动关心 |
-| `heartbeat` | `is_heartbeat` | 心跳机制主动消息 |
-| `dev_summary` | `is_dev_summary` | 主会话中的开发归档摘要 |
-| `archive_summary` | `is_archive_summary` | 归档 dev 会话内摘要 |
-
-**兼容加载**（渲染或 `load_covs` 后规范化一次即可）：
-
-```javascript
-function resolveMessageKind(msg) {
-  if (msg.messageKind) return msg.messageKind;
-  if (msg.is_awareness) return 'desktop_awareness';
-  if (msg.is_heartbeat) return 'heartbeat';
-  if (msg.is_dev_summary) return 'dev_summary';
-  if (msg.is_archive_summary) return 'archive_summary';
-  return 'chat';
-}
-```
-
-新写入只设 `messageKind`；旧布尔可保留只读一段时间，或迁移脚本写回后删除。
-
-`is_awareness` 在实现统一前仍会以布尔形式写入；文档与任务以本表为准。
+前端通过 `MessageKind` 常量引用枚举值；`resolveMessageKind(msg)` 直接返回 `msg.messageKind || 'chat'`，不再回填旧布尔字段（旧数据按普通 assistant 渲染）。
 
 ## 兼容性
 

@@ -1128,6 +1128,12 @@ function updateElement(el, rawMarkdown, formatFn) {
                           {{ message.agentName }}
                       </div>
 
+                      <!-- 消息来源标签 (messageKind) -->
+                      <div v-if="message.role === 'assistant' && resolveMessageKind(message) !== 'chat'" class="msg-kind-badge">
+                        <i :class="'fa-solid ' + (messageKindMeta(resolveMessageKind(message))?.icon || 'fa-tag')"></i>
+                        {{ t(messageKindMeta(resolveMessageKind(message))?.labelKey || resolveMessageKind(message)) }}
+                      </div>
+
                       <!-- TTS 控制区 -->
                       <div v-if="(ttsSettings.enabled || settings.enableOmniTTS || fastSettings.enableOmniTTS) && message.role === 'assistant'" class="tts-controls">
                         <el-tooltip :content="message.isPlaying ? t('pause') : t('play')">
@@ -1327,6 +1333,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                         <span class="msg-status" v-if="message.role === 'assistant' && !isMobile">
                             {{ t('total_tokens')+': '+ (message?.total_tokens ?? 0) +',    '+ t('first_token_latency')+': '+(message?.first_token_latency ?? 0) +'ms'}}
                         </span>
+                        <span class="msg-timestamp" v-if="message.timestamp">{{ formatConversationTime(message.timestamp) }}</span>
                       </div>
 
                     </div>
@@ -17315,6 +17322,12 @@ function updateElement(el, rawMarkdown, formatFn) {
                         {{ message.agentName }}
                     </div>
 
+                    <!-- 消息来源标签 (messageKind) -->
+                    <div v-if="message.role === 'assistant' && resolveMessageKind(message) !== 'chat'" class="msg-kind-badge">
+                      <i :class="'fa-solid ' + (messageKindMeta(resolveMessageKind(message))?.icon || 'fa-tag')"></i>
+                      {{ t(messageKindMeta(resolveMessageKind(message))?.labelKey || resolveMessageKind(message)) }}
+                    </div>
+
                     <!-- TTS 控制区 -->
                     <div v-if="(ttsSettings.enabled || settings.enableOmniTTS || fastSettings.enableOmniTTS) && message.role === 'assistant'" class="tts-controls">
                       <el-tooltip :content="message.isPlaying ? t('pause') : t('play')">
@@ -17514,6 +17527,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                       <span class="msg-status" v-if="message.role === 'assistant' && !isMobile">
                           {{ t('total_tokens')+': '+ (message?.total_tokens ?? 0) +',    '+ t('first_token_latency')+': '+(message?.first_token_latency ?? 0) +'ms'}}
                       </span>
+                      <span class="msg-timestamp" v-if="message.timestamp">{{ formatConversationTime(message.timestamp) }}</span>
                     </div>
 
                   </div>
