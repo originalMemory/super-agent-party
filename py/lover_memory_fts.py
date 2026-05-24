@@ -1,29 +1,24 @@
 """
-Workspace Markdown memory index (SQLite FTS5).
+日记树 Markdown 全文索引（SQLite FTS5）。
 
-Indexes:
-  - {lover_root}/MEMORY.md
-  - {lover_root}/memory/ 下任意 ``.md``（递归子目录）
+索引范围：配置的日记树根目录（``memorySettings.memoryDirPath``，留空则
+``{USER_DATA_DIR}/lover/memory/``）下递归的所有 ``.md`` 文件。
 
-Index DB: {lover_root}/memory_index.sqlite
+索引库：``{日记树根目录}/memory_index.sqlite``
 
-**Root directory**: ``USER_DATA_DIR/lover``（``py.get_setting.LOVER_DATA_DIR``）。与 ``CLISettings.cc_path`` **无关**；索引与人设/记忆 Markdown 同属用户数据目录下的 ``lover/``。
+与 ``CLISettings.cc_path`` **无关**；语料与索引库均跟随日记树目录。
 
-Tokenizer:
-  - Prefer loading [wangfenjin/simple](https://github.com/wangfenjin/simple) from a
-    release binary auto-downloaded/cached under ``lover/_fts5_simple/`` (see
-    ``py/lover_fts_simple_auto.py``). New DBs then use ``tokenize='simple'`` and
-    queries use ``simple_query()`` per upstream docs.
-  - If download/load fails: built-in **trigram** → **unicode61** → default.
+分词器：
+  - 优先加载 wangfenjin/simple 预编译扩展（见 ``py/lover_fts_simple_auto.py``，
+    缓存于 ``lover/_fts5_simple/``）。新建库使用 ``tokenize='simple'``，
+    查询走 ``simple_query()``。
+  - 下载/加载失败时依次回退：**trigram** → **unicode61** → 默认分词。
 
-**Sync**: ``sync_memory_index(lover_root, options)`` — interval from settings via
-``lover_memory_options``. **Search**: ``search_memory(..., options)`` loads the
-extension when the existing table uses ``simple``.
+同步：``sync_memory_index(workspace, options)``，间隔由 ``lover_memory_options``
+从 settings 读取。检索：``search_memory(..., options)`` 在表使用 simple 时加载扩展。
 
-If the **wangfenjin/simple** binary becomes loadable after the DB was built with a
-built-in tokenizer (or vice versa), ``memory_fts`` is **dropped**, ``doc_meta`` is
-cleared, and the next sync **re-indexes all** Markdown so tokens match the new
-tokenizer (aligned with upstream README: ``tokenize = 'simple'`` + ``simple_query()``).
+若 simple 扩展可用性与建库时不一致（simple ↔ 内置分词切换），会 **DROP** ``memory_fts``、
+清空 ``doc_meta``，下次同步 **全量重建**，使 token 与当前分词器一致。
 """
 
 from __future__ import annotations
@@ -43,14 +38,15 @@ from py.lover_fts_simple_auto import (
 
 logger = logging.getLogger(__name__)
 
-# Minimum sync interval (seconds) when settings are invalid.
+# settings 无效时的最小同步间隔（秒）
 _DEFAULT_SYNC_INTERVAL_SEC = 600
 
-# Log tokenizer / extension path once per process (avoid spam on periodic sync).
+# 分词器/扩展路径日志每个进程只打一次（避免周期同步刷屏）
 _MEMORY_TOKENIZER_LOGGED = False
 
 
 def _describe_memory_fts_tokenizer(conn: sqlite3.Connection) -> str:
+    """从建表 SQL 解析当前 FTS 分词器标识。"""
     sql = _memory_fts_create_sql(conn)
     if not sql:
         return "none"
@@ -63,6 +59,7 @@ def _describe_memory_fts_tokenizer(conn: sqlite3.Connection) -> str:
 
 
 def _tokenizer_label_zh(tok: str) -> str:
+    """分词器标识转中文日志标签。"""
     return {
         "simple": "simple（wangfenjin 插件）",
         "trigram": "trigram（SQLite 内置）",
@@ -73,6 +70,7 @@ def _tokenizer_label_zh(tok: str) -> str:
 
 
 def _log_memory_fts_tokenizer_once(conn: sqlite3.Connection, simple_extension_path: str) -> None:
+    """首次同步/检索时记录分词器与 simple 扩展路径。"""
     global _MEMORY_TOKENIZER_LOGGED
     if _MEMORY_TOKENIZER_LOGGED:
         return
@@ -88,7 +86,7 @@ def _log_memory_fts_tokenizer_once(conn: sqlite3.Connection, simple_extension_pa
 
 
 def lover_memory_options(settings: dict | None) -> dict[str, Any]:
-    """Options from settings['memorySettings']; defaults match settings_template.json."""
+    """从 settings['memorySettings'] 构建 FTS 选项；默认值与 settings_template.json 一致。"""
     ms = (settings or {}).get("memorySettings") or {}
     minutes = ms.get("memoryIndexSyncMinutes", 10)
     try:
@@ -97,7 +95,7 @@ def lover_memory_options(settings: dict | None) -> dict[str, Any]:
         interval_sec = _DEFAULT_SYNC_INTERVAL_SEC
     interval_sec = max(60, interval_sec)
 
-    # Avoid network/download on the asyncio thread — sync_memory_index resolves full path in a worker.
+    # 避免在 asyncio 线程触发网络下载；完整路径由 sync 工作线程内解析
     ext_path = get_cached_simple_extension_path()
 
     return {
@@ -107,14 +105,14 @@ def lover_memory_options(settings: dict | None) -> dict[str, Any]:
 
 
 def lover_data_root() -> Path:
-    """Lover SSOT + FTS 语料根目录：``USER_DATA_DIR/lover``。"""
+    """Lover SSOT 根目录：``USER_DATA_DIR/lover``。"""
     p = Path(LOVER_DATA_DIR)
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def workspace_root_from_settings(settings: dict) -> Path | None:
-    """Return memoryDirPath from settings if set, otherwise default lover_data_root()."""
+    """返回 memoryDirPath；未配置时使用默认 ``lover/memory/``。"""
     ms = (settings or {}).get("memorySettings") or {}
     custom = (ms.get("memoryDirPath") or "").strip()
     if custom:
@@ -122,24 +120,21 @@ def workspace_root_from_settings(settings: dict) -> Path | None:
         if p.is_absolute():
             p.mkdir(parents=True, exist_ok=True)
             return p
-    return lover_data_root()
+    default = lover_data_root() / "memory"
+    default.mkdir(parents=True, exist_ok=True)
+    return default
 
 
 def _db_path(workspace: Path) -> Path:
+    """索引库路径，与日记树同目录。"""
     return workspace / "memory_index.sqlite"
 
 
 def _list_memory_files(workspace: Path) -> list[Path]:
-    """MEMORY.md + every ``.md`` under ``memory/`` (recursive)."""
+    """日记树根目录下递归收集所有 .md 文件。"""
     root = workspace.resolve()
     out: list[Path] = []
-    mem = root / "MEMORY.md"
-    if mem.is_file():
-        out.append(mem)
-    memory_root = root / "memory"
-    if not memory_root.is_dir():
-        return sorted(out)
-    for p in memory_root.rglob("*.md"):
+    for p in root.rglob("*.md"):
         if not p.is_file():
             continue
         try:
@@ -151,12 +146,14 @@ def _list_memory_files(workspace: Path) -> list[Path]:
 
 
 def _connect(workspace: Path) -> sqlite3.Connection:
+    """打开索引库连接并启用 WAL。"""
     conn = sqlite3.connect(str(_db_path(workspace)), timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 
 def _try_load_fts_simple_extension(conn: sqlite3.Connection, path: str) -> bool:
+    """尝试为当前连接加载 simple 扩展。"""
     if not path or not Path(path).is_file():
         return False
     try:
@@ -171,6 +168,7 @@ def _try_load_fts_simple_extension(conn: sqlite3.Connection, path: str) -> bool:
 
 
 def _memory_fts_create_sql(conn: sqlite3.Connection) -> str | None:
+    """读取 memory_fts 虚拟表的 CREATE SQL。"""
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='memory_fts'"
     ).fetchone()
@@ -178,6 +176,7 @@ def _memory_fts_create_sql(conn: sqlite3.Connection) -> str | None:
 
 
 def _memory_fts_uses_simple_tokenizer(conn: sqlite3.Connection) -> bool:
+    """当前 memory_fts 表是否使用 simple 分词器。"""
     sql = _memory_fts_create_sql(conn)
     if not sql:
         return False
@@ -188,7 +187,7 @@ def _memory_fts_uses_simple_tokenizer(conn: sqlite3.Connection) -> bool:
 def _maybe_rebuild_fts_for_tokenizer_change(
     conn: sqlite3.Connection, simple_extension_path: str
 ) -> None:
-    """Drop FTS + doc_meta when simple vs built-in tokenizer no longer matches stored schema."""
+    """simple 与内置分词器目标不一致时，删除 FTS 表与 doc_meta 以待重建。"""
     if not _memory_fts_create_sql(conn):
         return
     want_simple = probe_simple_extension_loads(simple_extension_path)
@@ -205,6 +204,7 @@ def _maybe_rebuild_fts_for_tokenizer_change(
 
 
 def _ensure_schema(conn: sqlite3.Connection, simple_extension_path: str = "") -> None:
+    """确保 doc_meta / memory_fts 表存在，并按可用分词器建表。"""
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS doc_meta(
@@ -216,7 +216,7 @@ def _ensure_schema(conn: sqlite3.Connection, simple_extension_path: str = "") ->
     )
     _maybe_rebuild_fts_for_tokenizer_change(conn, simple_extension_path)
     if _memory_fts_create_sql(conn):
-        # 每张连接都要 load_extension，否则会句「no such tokenizer: simple」
+        # 每张连接都要 load_extension，否则会报「no such tokenizer: simple」
         if _memory_fts_uses_simple_tokenizer(conn):
             if simple_extension_path and _try_load_fts_simple_extension(
                 conn, simple_extension_path
@@ -249,6 +249,7 @@ def _ensure_schema(conn: sqlite3.Connection, simple_extension_path: str = "") ->
         except sqlite3.OperationalError:
             pass
 
+    # 依次尝试 SQLite 内置分词器
     for tokenize in ("trigram", "unicode61"):
         try:
             conn.execute(
@@ -274,6 +275,7 @@ def _ensure_schema(conn: sqlite3.Connection, simple_extension_path: str = "") ->
 
 
 class _SyncDocStats(NamedTuple):
+    """单次同步统计。"""
     listed: int
     updated: int
     unchanged: int
@@ -282,6 +284,7 @@ class _SyncDocStats(NamedTuple):
 
 
 def _sync_docs(conn: sqlite3.Connection, workspace: Path) -> _SyncDocStats:
+    """扫描语料目录，按 mtime/size 增量更新 FTS 与 doc_meta。"""
     workspace = workspace.resolve()
     meta = {
         row[0]: (row[1], row[2])
@@ -343,7 +346,7 @@ def _sync_docs(conn: sqlite3.Connection, workspace: Path) -> _SyncDocStats:
 
 
 def rebuild_memory_index(workspace: Path, options: dict | None = None) -> None:
-    """Drop and fully rebuild the FTS index from scratch (use when index is corrupted)."""
+    """丢弃并全量重建 FTS 索引（索引损坏时手动触发）。"""
     if not workspace.is_dir():
         return
     opts = options or {}
@@ -371,7 +374,7 @@ def rebuild_memory_index(workspace: Path, options: dict | None = None) -> None:
 
 
 def sync_memory_index(workspace: Path, options: dict | None = None) -> None:
-    """Scan Markdown sources and update FTS rows (mtime/size)."""
+    """扫描 Markdown 语料并按 mtime/size 增量同步 FTS。"""
     if not workspace.is_dir():
         return
     opts = options or {}
@@ -399,10 +402,12 @@ def sync_memory_index(workspace: Path, options: dict | None = None) -> None:
 
 
 def _fts5_quote_term(term: str) -> str:
+    """为 FTS5 MATCH 查询转义并加引号。"""
     return '"' + term.replace('"', '""') + '"'
 
 
 def _match_query_builtin(query: str) -> str:
+    """内置分词器下的 AND 短语查询（各词加引号）。"""
     q = query.strip()
     if not q:
         return ""
@@ -418,7 +423,7 @@ def search_memory(
     limit: int = 6,
     options: dict | None = None,
 ) -> list[dict[str, Any]]:
-    """FTS5 search; load simple extension when table uses tokenize=simple."""
+    """FTS5 检索；表使用 tokenize=simple 时加载 simple 扩展并走 simple_query。"""
     if not workspace.is_dir():
         return []
     opts = options or {}

@@ -931,11 +931,12 @@ async def lifespan(app: FastAPI):
 
             async def _fts_periodic_sync():
                 while True:
-                    opts = lover_memory_options(settings)
+                    fresh = await load_settings()
+                    opts = lover_memory_options(fresh)
                     interval = opts.get("sync_interval_sec", 600)
                     await asyncio.sleep(interval)
                     try:
-                        ws = workspace_root_from_settings(settings)
+                        ws = workspace_root_from_settings(fresh)
                         if ws and ws.is_dir():
                             await asyncio.to_thread(sync_memory_index, ws, opts)
                     except Exception as exc:
