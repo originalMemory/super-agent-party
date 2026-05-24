@@ -7835,6 +7835,27 @@ async def heartbeat_check(req: HeartbeatCheckRequest = HeartbeatCheckRequest()):
     return await _run_heartbeat_check(force=req.force)
 
 
+@app.post("/api/lover/rebuild-memory-index")
+async def rebuild_memory_index_endpoint():
+    """强制重建 FTS 日记树索引（drop + 全量重建），用于索引损坏时手动修复。"""
+    try:
+        from py.lover_memory_fts import (
+            lover_memory_options,
+            rebuild_memory_index,
+            workspace_root_from_settings,
+        )
+        settings = await load_settings()
+        ws = workspace_root_from_settings(settings)
+        if not ws or not ws.is_dir():
+            return {"success": False, "message": "日记树目录不存在或未配置"}
+        opts = lover_memory_options(settings)
+        await asyncio.to_thread(rebuild_memory_index, ws, opts)
+        return {"success": True, "message": "索引重建完成"}
+    except Exception as e:
+        logging.getLogger(__name__).warning("[FTS] 重建索引失败: %s", e)
+        return {"success": False, "message": str(e)}
+
+
 @app.post("/api/group-memory/clear-group")
 async def clear_group_memory_endpoint(req: ClearGroupMemoryRequest):
     req.group_id = _normalize_entity_id(req.group_id)

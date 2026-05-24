@@ -3553,6 +3553,11 @@ function updateElement(el, rawMarkdown, formatFn) {
                             <p>{{ t('clickOrDropCharacterCards') }}</p>
                           </div>
                         </div>
+                        <div style="margin-bottom: 8px;">
+                          <el-button size="small" @click="exportMemoryData" :disabled="!newMemory.name" plain>
+                            <i class="fa-solid fa-download" style="margin-right: 4px;"></i>{{ t('exportCharacterCard') }}
+                          </el-button>
+                        </div>
                         <el-tabs type="border-card" v-model="activeMemoryTabName">
 
                           <!-- 自动更新设定（供应商） -->
@@ -3860,6 +3865,12 @@ function updateElement(el, rawMarkdown, formatFn) {
                           show-input
                           @input="autoSaveSettings"
                         />
+                      </el-form-item>
+                      <el-form-item class="form-item-align">
+                        <el-button size="small" @click="rebuildMemoryIndex" plain>
+                          <i class="fa-solid fa-rotate" style="margin-right: 4px;"></i>{{ t('ftsRebuildIndex') }}
+                        </el-button>
+                        <span style="margin-left: 8px; font-size: 12px; opacity: 0.6;">{{ t('ftsRebuildIndexHint') }}</span>
                       </el-form-item>
                       <el-form-item :label="t('memoryNotes')" class="form-item-align">
                         <el-input

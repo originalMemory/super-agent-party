@@ -807,6 +807,20 @@ let vue_methods = {
         this.$options._awarenessInFlight = false;
       }
     },
+    // ── FTS 重建索引 ────────────────────────────────────────────────
+    async rebuildMemoryIndex() {
+      try {
+        const resp = await fetch('/api/lover/rebuild-memory-index', { method: 'POST' });
+        const result = await resp.json();
+        if (result.success) {
+          showNotification(this.t('ftsRebuildSuccess') || '索引重建完成', 'success');
+        } else {
+          showNotification(result.message || (this.t('ftsRebuildFailed') || '重建失败'), 'error');
+        }
+      } catch (e) {
+        showNotification(this.t('ftsRebuildFailed') || '重建索引请求异常', 'error');
+      }
+    },
     // ── 心跳机制 (HEARTBEAT) ────────────────────────────────────────
     async runHeartbeatCheck(options = {}) {
       const { force = false, notify = true } = options;
@@ -8406,6 +8420,7 @@ handleCreateSlackSeparator(val) {
         mesExample: data.mes_example || '',
         systemPrompt: data.system_prompt || '',
         firstMes: data.first_mes || '',
+        soul: data.soul || '',
         alternateGreetings: Array.isArray(data.alternate_greetings)
           ? data.alternate_greetings
           : [''],
@@ -8418,6 +8433,40 @@ handleCreateSlackSeparator(val) {
               }))
             : [{ keysRaw: '', content: '' }]
       };
+    },
+
+    exportMemoryData() {
+      const m = this.newMemory;
+      const payload = {
+        name: m.name || '',
+        description: m.description || '',
+        avatar: m.avatar || '',
+        personality: m.personality || '',
+        mes_example: m.mesExample || '',
+        system_prompt: m.systemPrompt || '',
+        first_mes: m.firstMes || '',
+        soul: m.soul || '',
+        alternate_greetings: Array.isArray(m.alternateGreetings)
+          ? m.alternateGreetings.filter(g => g)
+          : [],
+        character_book: {
+          entries: (m.characterBook || [])
+            .filter(e => e.keysRaw || e.content)
+            .map((e, i) => ({
+              keys: e.keysRaw ? e.keysRaw.split('\n').map(k => k.trim()).filter(Boolean) : [],
+              content: e.content || '',
+              id: i,
+              enabled: true,
+            })),
+        },
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${m.name || 'character'}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
     },
 
     removeJsonFile() {

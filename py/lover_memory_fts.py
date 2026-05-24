@@ -342,6 +342,34 @@ def _sync_docs(conn: sqlite3.Connection, workspace: Path) -> _SyncDocStats:
     )
 
 
+def rebuild_memory_index(workspace: Path, options: dict | None = None) -> None:
+    """Drop and fully rebuild the FTS index from scratch (use when index is corrupted)."""
+    if not workspace.is_dir():
+        return
+    opts = options or {}
+    ext_path = opts.get("fts5_simple_extension_path") or ""
+    if not ext_path:
+        ext_path = get_auto_simple_extension_path()
+    workspace = workspace.resolve()
+    conn = _connect(workspace)
+    try:
+        conn.execute("DROP TABLE IF EXISTS memory_fts")
+        conn.execute("DELETE FROM doc_meta")
+        conn.commit()
+        _ensure_schema(conn, ext_path)
+        _log_memory_fts_tokenizer_once(conn, ext_path)
+        stats = _sync_docs(conn, workspace)
+        conn.commit()
+        logger.info(
+            "[lover/FTS] 记忆索引重建完成：扫描 %s 个 Markdown，写入 %s 个，跳过异常 %s 个",
+            stats.listed,
+            stats.updated,
+            stats.skipped_failed,
+        )
+    finally:
+        conn.close()
+
+
 def sync_memory_index(workspace: Path, options: dict | None = None) -> None:
     """Scan Markdown sources and update FTS rows (mtime/size)."""
     if not workspace.is_dir():
