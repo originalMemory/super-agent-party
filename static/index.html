@@ -3918,22 +3918,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                           class="full-width-input"
                         />
                       </el-tab-pane>
-                      <el-tab-pane name="heartbeat" :label="t('heartbeatFile')">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-                          <span style="font-size:12px;opacity:0.55;">{{ t('heartbeatFileHint') }}</span>
-                          <el-button circle size="small" @click="loadLoverFile('HEARTBEAT.md')" :loading="loverFileLoading.heartbeat">
-                            <i class="fa-solid fa-rotate"></i>
-                          </el-button>
-                        </div>
-                        <el-input
-                          v-model="loverFiles.heartbeat"
-                          type="textarea"
-                          :rows="14"
-                          :placeholder="t('heartbeatFilePlaceholder')"
-                          @input="debouncedSaveLoverFile('HEARTBEAT.md', 'heartbeat')"
-                          class="full-width-input"
-                        />
-                      </el-tab-pane>
                     </el-tabs>
                   </el-tab-pane>
                   <!-- 系统提示词标签页 -->
@@ -5791,124 +5775,7 @@ function updateElement(el, rawMarkdown, formatFn) {
                       </el-form-item>
                     </div>
                   </div>
-                  <!-- 桌面主动感知 -->
-                  <div class="tool-item" style="margin-top: 16px;">
-                    <div class="tool-header">
-                      <div class="header-left">
-                        <span>
-                          <el-icon>
-                            <i class="fa-solid fa-brain"></i>
-                          </el-icon>
-                          {{ t('desktopAwareness') }}
-                        </span>
-                      </div>
-                      <el-switch v-model="desktopAwareness.enabled" @click.stop @change="startDesktopAwarenessTimer(); autoSaveSettings()"/>
-                    </div>
-                    <div class="tool-content">
-                      <div style="font-size: 12px; opacity: 0.6; margin-bottom: 12px;">
-                        {{ t('desktopAwarenessHint') }}
-                      </div>
-                      <el-form-item :label="t('desktopAwarenessInterval')" class="form-item-align" label-position="left">
-                        <el-input-number
-                          v-model="desktopAwareness.intervalMinutes"
-                          :min="5"
-                          :max="1440"
-                          :step="5"
-                          @change="startDesktopAwarenessTimer(); autoSaveSettings()"
-                          style="width: 140px;"
-                        />
-                        <span style="margin-left: 8px; font-size: 12px; opacity: 0.6;">{{ t('desktopAwarenessMinutesUnit') }}</span>
-                      </el-form-item>
-                      <el-form-item :label="t('desktopAwarenessSkipWindow')" class="form-item-align" label-position="left">
-                        <el-input-number
-                          v-model="desktopAwareness.skipWindowMinutes"
-                          :min="1"
-                          :max="1440"
-                          :step="5"
-                          @change="autoSaveSettings()"
-                          style="width: 140px;"
-                        />
-                        <span style="margin-left: 8px; font-size: 12px; opacity: 0.6;">{{ t('desktopAwarenessMinutesUnit') }}</span>
-                      </el-form-item>
-                      <div style="font-size: 12px; opacity: 0.6; margin-top: -8px; margin-bottom: 12px;">
-                        {{ t('desktopAwarenessSkipWindowHint') }}
-                      </div>
-                      <el-button size="small" @click.stop="runDesktopAwarenessCheck({ force: true })" :disabled="!desktopAwareness.enabled" plain>
-                        <i class="fa-solid fa-play" style="margin-right: 4px;"></i>{{ t('desktopAwarenessTestNow') }}
-                      </el-button>
-                    </div>
-                  </div>
 
-                  <!-- 心跳机制 (HEARTBEAT) -->
-                  <div class="tool-item" style="margin-top: 16px;">
-                    <div class="tool-header">
-                      <div class="header-left">
-                        <span>
-                          <el-icon>
-                            <i class="fa-solid fa-heart-pulse"></i>
-                          </el-icon>
-                          {{ t('heartbeat') }}
-                        </span>
-                      </div>
-                      <el-switch v-model="heartbeat.enabled" @click.stop @change="autoSaveSettings()"/>
-                    </div>
-                    <div class="tool-content">
-                      <div style="font-size: 12px; opacity: 0.6; margin-bottom: 12px;">
-                        {{ t('heartbeatHint') }}
-                      </div>
-                      <el-form-item :label="t('heartbeatInterval')" class="form-item-align" label-position="left">
-                        <el-input-number
-                          v-model="heartbeat.intervalMinutes"
-                          :min="5"
-                          :max="1440"
-                          :step="5"
-                          @change="autoSaveSettings()"
-                          style="width: 140px;"
-                        />
-                        <span style="margin-left: 8px; font-size: 12px; opacity: 0.6;">{{ t('heartbeatMinutesUnit') }}</span>
-                      </el-form-item>
-                      <el-form-item :label="t('heartbeatSkipWindow')" class="form-item-align" label-position="left">
-                        <el-input-number
-                          v-model="heartbeat.skipWindowMinutes"
-                          :min="1"
-                          :max="1440"
-                          :step="5"
-                          @change="autoSaveSettings()"
-                          style="width: 140px;"
-                        />
-                        <span style="margin-left: 8px; font-size: 12px; opacity: 0.6;">{{ t('heartbeatMinutesUnit') }}</span>
-                      </el-form-item>
-                      <div style="font-size: 12px; opacity: 0.6; margin-top: -8px; margin-bottom: 12px;">
-                        {{ t('heartbeatSkipWindowHint') }}
-                      </div>
-                      <el-form-item :label="t('heartbeatEnableTools')" class="form-item-align" label-position="left">
-                        <el-switch v-model="heartbeat.enableTools" @click.stop @change="autoSaveSettings()" />
-                      </el-form-item>
-                      <el-form-item v-if="heartbeat.enableTools" :label="t('heartbeatMaxToolRounds')" class="form-item-align" label-position="left">
-                        <el-input-number
-                          v-model="heartbeat.maxToolRounds"
-                          :min="1"
-                          :max="50"
-                          :step="1"
-                          @change="autoSaveSettings()"
-                          style="width: 140px;"
-                        />
-                        <span style="margin-left: 8px; font-size: 12px; opacity: 0.6;">{{ t('heartbeatMaxToolRoundsUnit') }}</span>
-                      </el-form-item>
-                      <el-form-item :label="t('heartbeatCustomPrompt')" label-position="top">
-                        <el-input
-                          v-model="heartbeat.prompt"
-                          type="textarea"
-                          :rows="3"
-                          :placeholder="t('heartbeatCustomPromptPlaceholder')"
-                          @change="autoSaveSettings()"
-                        />
-                      </el-form-item>
-                      <el-button size="small" @click.stop="runHeartbeatCheck({ force: true })" :disabled="!heartbeat.enabled" plain>
-                        <i class="fa-solid fa-play" style="margin-right: 4px;"></i>{{ t('heartbeatTestNow') }}
-                      </el-button>
-                    </div>
-                  </div>
                 </el-form>
                 <!-- Web端提示 -->
                 <div v-else >

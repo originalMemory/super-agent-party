@@ -13,32 +13,9 @@ LOVER_FILES = {
     "soul":        "SOUL.md",
     "userProfile": "USER.md",
     "memoryNotes": "MEMORY.md",
-    "heartbeat":   "HEARTBEAT.md",
 }
 LOVER_FILE_NAMES = set(LOVER_FILES.values())
 
-DEFAULT_SKIP_WINDOW_MINUTES = 20
-DEFAULT_HEARTBEAT_SKIP_WINDOW_MINUTES = 10
-
-
-def _skip_window_ms(cfg: dict, default_minutes: int) -> int:
-    try:
-        minutes = max(1, int(cfg.get("skipWindowMinutes", default_minutes)))
-    except (TypeError, ValueError):
-        minutes = default_minutes
-    return minutes * 60 * 1000
-
-
-def desktop_awareness_skip_window_ms(settings: dict) -> int:
-    return _skip_window_ms(
-        settings.get("desktopAwareness") or {}, DEFAULT_SKIP_WINDOW_MINUTES
-    )
-
-
-def heartbeat_skip_window_ms(settings: dict) -> int:
-    return _skip_window_ms(
-        settings.get("heartbeat") or {}, DEFAULT_HEARTBEAT_SKIP_WINDOW_MINUTES
-    )
 
 
 def message_text_content(content: Any) -> str:
@@ -291,21 +268,6 @@ async def append_character_card_context(
                 logger.warning("[日记概要] 注入失败: %s", err)
 
 
-
-async def read_heartbeat_md(settings: dict) -> str:
-    """读取 lover 数据目录下的 HEARTBEAT.md，不存在则返回空串。"""
-    try:
-        from py.lover_memory_fts import lover_data_root as _lover_root
-
-        p = _lover_root() / LOVER_FILES["heartbeat"]
-        if not p.is_file():
-            return ""
-        return await asyncio.to_thread(
-            lambda: p.read_text(encoding="utf-8", errors="replace").strip()
-        )
-    except Exception as err:
-        logger.warning("[HEARTBEAT.md] 读取失败: %s", err)
-        return ""
 
 
 async def build_lover_system_messages(

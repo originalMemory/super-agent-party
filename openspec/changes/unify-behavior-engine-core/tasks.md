@@ -7,21 +7,21 @@
 
 ## 2. 移除旧心跳系统
 
-- [ ] 2.1 `server.py`：移除 `_heartbeat_periodic_loop`、`_heartbeat_task`、`_heartbeat_in_flight`、`_build_heartbeat_prompt`、`_collect_heartbeat_tools`、`_execute_heartbeat_tool_calls`、`_heartbeat_write_and_broadcast`、`_run_heartbeat_check` 函数
-- [ ] 2.2 `server.py`：移除 `/api/lover/heartbeat-check` endpoint
-- [ ] 2.3 `server.py` `lifespan`：移除心跳定时器启动和 cancel 逻辑
-- [ ] 2.4 `py/lover_system_context.py`：移除 `heartbeat_skip_window_ms`、`read_heartbeat_md` 等心跳专属辅助函数
-- [ ] 2.5 `static/js/vue_methods.js`：移除 `runHeartbeatCheck`、`_handleHeartbeatMessage` 方法
-- [ ] 2.6 `static/js/vue_methods.js` WebSocket `onmessage`：移除 `heartbeat_message` 处理分支
-- [ ] 2.7 `static/index.html`：移除心跳配置 UI 面板
-- [ ] 2.8 移除 `HEARTBEAT.md` 文件读写相关 endpoint（`/api/lover/file` 中的 `HEARTBEAT.md` 分支）以及前端 `loadAllLoverFiles` 中的 HEARTBEAT.md 读取
+- [x] 2.1 `server.py`：移除 `_heartbeat_periodic_loop`、`_heartbeat_task`、`_heartbeat_in_flight`、`_build_heartbeat_prompt`、`_collect_heartbeat_tools`、`_execute_heartbeat_tool_calls`、`_heartbeat_write_and_broadcast`、`_run_heartbeat_check` 函数
+- [x] 2.2 `server.py`：移除 `/api/lover/heartbeat-check` endpoint
+- [x] 2.3 `server.py` `lifespan`：移除心跳定时器启动和 cancel 逻辑
+- [x] 2.4 `py/lover_system_context.py`：移除 `heartbeat_skip_window_ms`、`read_heartbeat_md` 等心跳专属辅助函数
+- [x] 2.5 `static/js/vue_methods.js`：移除 `runHeartbeatCheck`、`_handleHeartbeatMessage` 方法
+- [x] 2.6 `static/js/vue_methods.js` WebSocket `onmessage`：移除 `heartbeat_message` 处理分支
+- [x] 2.7 `static/index.html`：移除心跳配置 UI 面板
+- [x] 2.8 移除 `HEARTBEAT.md` 文件读写相关 endpoint（`/api/lover/file` 中的 `HEARTBEAT.md` 分支）以及前端 `loadAllLoverFiles` 中的 HEARTBEAT.md 读取
 
 ## 3. 移除旧桌面感知系统
 
-- [ ] 3.1 `server.py`：移除 `/api/lover/desktop-awareness-check` endpoint
-- [ ] 3.2 `static/js/vue_methods.js`：移除 `startDesktopAwarenessTimer`、`stopDesktopAwarenessTimer`、`runDesktopAwarenessCheck` 方法
-- [ ] 3.3 `static/index.html`：移除桌面感知配置 UI 面板
-- [ ] 3.4 `static/js/vue_data.js`：确认 `desktopAwareness` 顶层数据已在 1.3 中移除
+- [x] 3.1 `server.py`：移除 `/api/lover/desktop-awareness-check` endpoint
+- [x] 3.2 `static/js/vue_methods.js`：移除 `startDesktopAwarenessTimer`、`stopDesktopAwarenessTimer`、`runDesktopAwarenessCheck` 方法
+- [x] 3.3 `static/index.html`：移除桌面感知配置 UI 面板
+- [x] 3.4 `static/js/vue_data.js`：确认 `desktopAwareness` 顶层数据已在 1.3 中移除
 
 ## 4. 前端调度与执行
 
