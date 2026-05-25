@@ -32,7 +32,7 @@ class BehaviorRandomAction(BaseModel):
     orderIndex: int = 0
 
 class BehaviorAction(BaseModel):
-    type: str # "prompt", "random", "topic"
+    type: str # "prompt", "random", "topic", "desktopAwareness"
     prompt: Optional[str] = ""
     random: Optional[BehaviorRandomAction] = None
     topicLimit: int = 1
@@ -41,8 +41,14 @@ class BehaviorItem(BaseModel):
     enabled: bool
     trigger: BehaviorTrigger
     action: BehaviorAction
-    platform: Optional[str] = "chat"     # 保留字段以兼容旧版本
-    platforms: List[str] = []           # 新字段：支持多选
+    platform: Optional[str] = "chat"
+    platforms: List[str] = []
+    runInBackground: bool = False
+    skipIfRecentlyActive: bool = False
+    skipWindowMinutes: int = 30
+    noActionDetection: bool = False
+    messageKind: str = "chat"
+    presetId: Optional[str] = None
 
 class BehaviorSettings(BaseModel):
     enabled: bool
