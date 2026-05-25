@@ -1,14 +1,11 @@
 import json
 from pathlib import Path
 from py.get_setting import load_settings, save_settings
+from py.lover_system_context import LOVER_FILES
 
-WRITABLE_FIELDS = {"soul", "description", "personality", "systemPrompt", "mesExample"}
+WRITABLE_FIELDS = {"description", "personality", "systemPrompt", "mesExample"}
 
-_LOVER_FILE_MAP = {
-    "userProfile": "USER.md",
-    "memoryNotes": "MEMORY.md",
-    "soul": "SOUL.md",
-}
+LOVER_CONTEXT_KEYS = ("soul", "userProfile", "memoryNotes")
 
 
 def _lover_dir() -> Path:
@@ -53,33 +50,25 @@ async def get_character_card(fields: list = None) -> str:
     result = {}
     if fields:
         for f in fields:
-            if f in _LOVER_FILE_MAP:
-                result[f] = _read_lover_file(_LOVER_FILE_MAP[f]) or memory_settings.get(f, "") or cur_memory.get(f, "")
-            elif f in cur_memory:
+            if f in cur_memory:
                 result[f] = cur_memory[f]
             else:
                 result[f] = None
     else:
         result = {k: v for k, v in cur_memory.items() if k not in ("api_key",)}
+    return json.dumps(result, ensure_ascii=False)
 
-    result["userProfile"] = _read_lover_file("USER.md") or memory_settings.get("userProfile", "")
-    result["memoryNotes"] = _read_lover_file("MEMORY.md") or memory_settings.get("memoryNotes", "")
+
+async def get_lover_context(fields: list = None) -> str:
+    keys = [f for f in fields if f in LOVER_CONTEXT_KEYS] if fields else list(LOVER_CONTEXT_KEYS)
+    result = {k: _read_lover_file(LOVER_FILES[k]) for k in keys}
     return json.dumps(result, ensure_ascii=False)
 
 
 async def update_character_card(field: str, value: str) -> str:
     if field not in WRITABLE_FIELDS:
         return json.dumps({
-            "error": f"字段 '{field}' 不可修改，可写字段：{', '.join(sorted(WRITABLE_FIELDS))}"
-        }, ensure_ascii=False)
-
-    if field == "soul":
-        p = _write_lover_file("SOUL.md", value)
-        return json.dumps({
-            "success": True,
-            "field": field,
-            "file": str(p),
-            "length": len(value),
+            "error": f"字段 '{field}' 不可修改，可写字段：{', '.join(sorted(WRITABLE_FIELDS))}。全局共享内容请使用 update_lover_context"
         }, ensure_ascii=False)
 
     settings = await load_settings()
@@ -103,23 +92,14 @@ async def update_character_card(field: str, value: str) -> str:
     return json.dumps({"error": f"未找到 id={selected_id} 的角色卡"}, ensure_ascii=False)
 
 
-async def update_user_profile(value: str) -> str:
-    p = _write_lover_file("USER.md", value)
+async def update_lover_context(field: str, value: str) -> str:
+    if field not in LOVER_CONTEXT_KEYS:
+        return json.dumps({
+            "error": f"字段 '{field}' 不可修改，可写字段：{', '.join(LOVER_CONTEXT_KEYS)}"
+        }, ensure_ascii=False)
+    p = _write_lover_file(LOVER_FILES[field], value)
     return json.dumps({
-        "success": True,
-        "field": "userProfile",
-        "file": str(p),
-        "length": len(value),
-    }, ensure_ascii=False)
-
-
-async def update_memory_notes(value: str) -> str:
-    p = _write_lover_file("MEMORY.md", value)
-    return json.dumps({
-        "success": True,
-        "field": "memoryNotes",
-        "file": str(p),
-        "length": len(value),
+        "success": True, "field": field, "file": str(p), "length": len(value),
     }, ensure_ascii=False)
 
 
@@ -127,14 +107,33 @@ get_character_card_tool = {
     "type": "function",
     "function": {
         "name": "get_character_card",
-        "description": "读取当前角色卡的信息。可指定字段名获取特定内容，不指定则返回全部。同时返回全局用户档案（USER.md）和记忆笔记（MEMORY.md）。",
+        "description": "读取当前角色卡的信息（description、personality、systemPrompt 等角色级字段）。全局共享内容（元层原则、用户档案、记忆笔记）请使用 get_lover_context。",
         "parameters": {
             "type": "object",
             "properties": {
                 "fields": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "要读取的字段列表，如 ['soul', 'description', 'userProfile', 'memoryNotes']。不传则返回全部字段。",
+                    "description": "要读取的角色卡字段列表，如 ['description', 'personality']。不传则返回全部字段。",
+                },
+            },
+            "required": [],
+        },
+    },
+}
+
+get_lover_context_tool = {
+    "type": "function",
+    "function": {
+        "name": "get_lover_context",
+        "description": "读取全局共享上下文：元层原则（SOUL.md）、用户档案（USER.md）、记忆笔记（MEMORY.md）。这些内容所有角色共享，不属于单个角色卡。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "fields": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["soul", "userProfile", "memoryNotes"]},
+                    "description": "要读取的字段列表。不传则返回全部三项。",
                 },
             },
             "required": [],
@@ -146,7 +145,7 @@ update_character_card_tool = {
     "type": "function",
     "function": {
         "name": "update_character_card",
-        "description": "修改当前角色卡的指定字段。可写字段：soul（写入 SOUL.md）、description、personality、systemPrompt、mesExample。修改后自动保存。",
+        "description": "修改当前角色卡的指定字段。可写字段：description、personality、systemPrompt、mesExample。全局共享内容（元层原则、用户档案、记忆笔记）请使用 update_lover_context。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -164,38 +163,25 @@ update_character_card_tool = {
     },
 }
 
-update_user_profile_tool = {
+update_lover_context_tool = {
     "type": "function",
     "function": {
-        "name": "update_user_profile",
-        "description": "修改用户档案（写入 lover/USER.md）。修改后自动保存。",
+        "name": "update_lover_context",
+        "description": "修改全局共享上下文。soul = 元层原则（SOUL.md），userProfile = 用户档案（USER.md），memoryNotes = 记忆笔记（MEMORY.md）。所有角色共享，修改后自动保存。",
         "parameters": {
             "type": "object",
             "properties": {
+                "field": {
+                    "type": "string",
+                    "enum": ["soul", "userProfile", "memoryNotes"],
+                    "description": "要修改的字段：soul（元层原则）、userProfile（用户档案）、memoryNotes（记忆笔记）",
+                },
                 "value": {
                     "type": "string",
-                    "description": "新的用户档案内容（Markdown）",
+                    "description": "新的内容（Markdown）",
                 },
             },
-            "required": ["value"],
-        },
-    },
-}
-
-update_memory_notes_tool = {
-    "type": "function",
-    "function": {
-        "name": "update_memory_notes",
-        "description": "修改记忆笔记（写入 lover/MEMORY.md）——长期事实与约定。修改后自动保存。",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "value": {
-                    "type": "string",
-                    "description": "新的记忆笔记内容（Markdown）",
-                },
-            },
-            "required": ["value"],
+            "required": ["field", "value"],
         },
     },
 }

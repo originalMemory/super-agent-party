@@ -47,7 +47,7 @@
 | `characterBook` | 世界书（关键词 + 内容） | 关键词命中时 system 追加 |
 | `firstMes` / `alternateGreetings` | 开场白 | 前端写入对话历史 |
 | `avatar` | 头像 URL |  mainly UI（如 `getRoleAvatar`），**不**自动进 prompt |
-| `soul` | 元层原则（价值观、语调、主动性边界） | 每轮 system 追加（`## 元层原则`） |
+| `soul`（已迁至全局） | 元层原则（价值观、语调、主动性边界） | 每轮 system 追加（`## 元层原则`），所有角色共享 |
 | `providerId` + embedding 相关 | 长期记忆 | 检索/写入 mem0 |
 | `infer` | 是否自动提炼记忆 | 控制 `m0.add(..., infer=)` |
 
@@ -114,7 +114,7 @@
 | 顺序 | 内容 | 条件 |
 |------|------|------|
 | 1 | 用户档案（`memorySettings.userProfile`） | 非空（`## 用户档案`） |
-| 2 | 元层原则（`memories[i].soul`） | 非空（`## 元层原则`） |
+| 2 | 元层原则（全局 `SOUL.md` / `memorySettings.soul`） | 非空（`## 元层原则`），所有角色共享 |
 | 3 | 默认用户名说明 | 配置了 `userName` |
 | 4 | 世界观设定 | `characterBook` 任一关键词出现在**本条 user** 或**上一条 assistant** |
 | 5 | 角色设定 | `description` 非空 |
@@ -126,7 +126,7 @@
 | 11 | 相关回忆（FTS recall） | 日记树 FTS 检索命中时 |
 | 12 | 之前的相关记忆（mem0） | 角色卡配了 `providerId`，默认关闭 |
 
-实现位置：`server.py` 约 3629–3711 行。
+实现位置：`py/lover_system_context.py` 的 `append_character_card_context` 函数。三个全局 `.md` 文件（`SOUL.md` / `USER.md` / `MEMORY.md`）存储在 `{USER_DATA_DIR}/lover/` 目录下。
 
 ### `tools_change_messages` 中与角色卡相关的部分
 
@@ -152,14 +152,16 @@
 
 以下字段存储在 `memorySettings` 中，所有角色卡共享，切换角色时保持不变：
 
-| 字段 | 用途 | 注入方式 |
-|------|------|----------|
-| `userProfile` | 用户档案（姓名、偏好、重要日期） | 每轮 system 追加（`## 用户档案`），注入优先级最高 |
-| `memoryNotes` | 手写长期记忆笔记（事实与约定） | 每轮 system 追加（`## 记忆笔记`），常驻全文注入 |
-| `memoryDirPath` | 日记树根目录 | 空值时默认 `{USER_DATA_DIR}/lover/memory/` |
-| `memoryIndexSyncMinutes` | FTS 索引同步间隔（分钟） | 默认 10 |
+| 字段 | 用途 | 注入方式 | 存储 |
+|------|------|----------|------|
+| `soul` | 元层原则（价值观、语调、主动性边界） | 每轮 system 追加（`## 元层原则`） | `lover/SOUL.md` |
+| `userProfile` | 用户档案（姓名、偏好、重要日期） | 每轮 system 追加（`## 用户档案`），注入优先级最高 | `lover/USER.md` |
+| `memoryNotes` | 手写长期记忆笔记（事实与约定） | 每轮 system 追加（`## 记忆笔记`），常驻全文注入 | `lover/MEMORY.md` |
+| `heartbeat` | 心跳任务备忘 | 心跳触发时注入心跳 prompt | `lover/HEARTBEAT.md` |
+| `memoryDirPath` | 日记树根目录 | 空值时默认 `{USER_DATA_DIR}/lover/memory/` | `memorySettings.memoryDirPath` |
+| `memoryIndexSyncMinutes` | FTS 索引同步间隔（分钟） | 默认 10 | `memorySettings.memoryIndexSyncMinutes` |
 
-`memoryNotes` 沉淀的是与**用户**相关的长期事实与约定（如生日、偏好、共同经历），而非特定角色属性，因此属全局级。
+四者（soul / userProfile / memoryNotes / heartbeat）完全以 `lover/*.md` 文件为唯一数据源（SSOT），前端「用户档案与记忆」Tab 和 AI 工具均直接读写文件。
 
 ## AI 工具
 
@@ -168,13 +170,14 @@
 | 工具 | 功能 | 权限 |
 |------|------|------|
 | `get_character_card` | 读取当前角色卡字段 + userProfile + memoryNotes | 无需审批 |
-| `update_character_card` | 修改角色卡指定字段（白名单：soul/description/personality/systemPrompt/mesExample） | 需用户审批 |
-| `update_user_profile` | 修改全局用户档案 | 需用户审批 |
-| `update_memory_notes` | 修改全局记忆笔记 | 需用户审批 |
+| `update_character_card` | 修改角色卡指定字段（白名单：description/personality/systemPrompt/mesExample） | 需用户审批 |
+| `update_soul` | 修改全局元层原则（写入 `lover/SOUL.md`） | 需用户审批 |
+| `update_user_profile` | 修改全局用户档案（写入 `lover/USER.md`） | 需用户审批 |
+| `update_memory_notes` | 修改全局记忆笔记（写入 `lover/MEMORY.md`） | 需用户审批 |
 
 使用场景：
 - AI 发现用户新事实 → 调用 `update_memory_notes` 或 `update_user_profile`
-- AI 根据反馈调整自身 → 调用 `update_character_card` 修改 `soul` / `personality`
+- AI 根据反馈调整自身 → 调用 `update_character_card` 修改 `personality`，或 `update_soul` 修改元层原则
 
 ## 与 lover / multiLovers 分支的边界
 

@@ -200,6 +200,8 @@ const MessageKind = Object.freeze({
   ARCHIVE_SUMMARY:   'archiveSummary',
 });
 
+const _LOVER_FILE_KEY_MAP = { 'SOUL.md': 'soul', 'USER.md': 'userProfile', 'MEMORY.md': 'memoryNotes', 'HEARTBEAT.md': 'heartbeat' };
+
 let vue_methods = {
   stringifyEntityId(value) {
     if (value === null || value === undefined || value === '') {
@@ -829,6 +831,72 @@ let vue_methods = {
         showNotification(this.t('ftsRebuildFailed') || '重建索引请求异常', 'error');
       }
     },
+    // ── Lover 文件读写 (SOUL.md / USER.md / MEMORY.md) ──────────────
+
+    async loadLoverFile(filename) {
+      const key = _LOVER_FILE_KEY_MAP[filename];
+      if (!key) return;
+      this.loverFileLoading[key] = true;
+      try {
+        const resp = await fetch(`/api/lover/file?name=${encodeURIComponent(filename)}`);
+        const result = await resp.json();
+        if (result.success) {
+          this.loverFiles[key] = result.content || '';
+        }
+      } catch (e) {
+        console.warn(`[lover-file] 读取 ${filename} 失败:`, e);
+      } finally {
+        this.loverFileLoading[key] = false;
+      }
+    },
+
+    async loadAllLoverFiles() {
+      await Promise.all([
+        this.loadLoverFile('SOUL.md'),
+        this.loadLoverFile('USER.md'),
+        this.loadLoverFile('MEMORY.md'),
+        this.loadLoverFile('HEARTBEAT.md'),
+      ]);
+      this.loverFilesLoaded = true;
+    },
+
+    async saveLoverFile(filename, key) {
+      try {
+        const resp = await fetch('/api/lover/file', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: filename, content: this.loverFiles[key] }),
+        });
+        const result = await resp.json();
+        if (!result.success) {
+          showNotification(`${filename} 保存失败: ${result.message || '未知错误'}`, 'error');
+        }
+      } catch (e) {
+        console.warn(`[lover-file] 保存 ${filename} 失败:`, e);
+        showNotification(`${filename} 保存失败`, 'error');
+      }
+    },
+
+    debouncedSaveLoverFile(filename, key) {
+      const timerKey = `_loverSaveTimer_${key}`;
+      clearTimeout(this[timerKey]);
+      this[timerKey] = setTimeout(() => this.saveLoverFile(filename, key), 800);
+    },
+
+    onLoverFileTabSwitch() {
+      const map = { soul: 'SOUL.md', userProfile: 'USER.md', memoryNotes: 'MEMORY.md', heartbeat: 'HEARTBEAT.md' };
+      const filename = map[this.activeLoverFileTab];
+      if (filename) this.loadLoverFile(filename);
+    },
+
+    // Element Plus 不同版本的 tab-click 事件对象结构不同：
+    // v2.3+ 使用 tab.paneName，旧版使用 tab.props.name
+    onMemoryTabSwitch(tab) {
+      if ((tab.paneName || tab.props?.name) === 'userMemory' && !this.loverFilesLoaded) {
+        this.loadAllLoverFiles();
+      }
+    },
+
     // ── 心跳机制 (HEARTBEAT) ────────────────────────────────────────
     async runHeartbeatCheck(options = {}) {
       const { force = false, notify = true } = options;

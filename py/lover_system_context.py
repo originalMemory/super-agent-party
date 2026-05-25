@@ -9,6 +9,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+LOVER_FILES = {
+    "soul":        "SOUL.md",
+    "userProfile": "USER.md",
+    "memoryNotes": "MEMORY.md",
+    "heartbeat":   "HEARTBEAT.md",
+}
+LOVER_FILE_NAMES = set(LOVER_FILES.values())
+
 DEFAULT_SKIP_WINDOW_MINUTES = 20
 DEFAULT_HEARTBEAT_SKIP_WINDOW_MINUTES = 10
 
@@ -190,21 +198,20 @@ async def append_character_card_context(
                 pass
         return ""
 
-    _user_profile_raw, _soul_raw, _memory_notes_raw = await asyncio.gather(
-        asyncio.to_thread(_read_lover_file_sync, "USER.md"),
-        asyncio.to_thread(_read_lover_file_sync, "SOUL.md"),
-        asyncio.to_thread(_read_lover_file_sync, "MEMORY.md"),
+    _user_profile, _soul, _memory_notes = await asyncio.gather(
+        asyncio.to_thread(_read_lover_file_sync, LOVER_FILES["userProfile"]),
+        asyncio.to_thread(_read_lover_file_sync, LOVER_FILES["soul"]),
+        asyncio.to_thread(_read_lover_file_sync, LOVER_FILES["memoryNotes"]),
     )
 
-    _user_profile = _user_profile_raw or mem_settings.get("userProfile", "")
-    if _user_profile:
-        _user_profile = _user_profile.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
-        content_append(messages, "system", "\n## 用户档案\n" + _user_profile + "\n")
+    def _replace(text: str) -> str:
+        return text.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
 
-    _soul = _soul_raw or cur_memory.get("soul", "")
+    if _user_profile:
+        content_append(messages, "system", "\n## 用户档案\n" + _replace(_user_profile) + "\n")
+
     if _soul:
-        _soul = _soul.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
-        content_append(messages, "system", "\n## 元层原则\n" + _soul + "\n")
+        content_append(messages, "system", "\n## 元层原则\n" + _replace(_soul) + "\n")
 
     if mem_settings.get("userName"):
         content_append(
@@ -263,10 +270,8 @@ async def append_character_card_context(
         generic = generic.replace("{{char}}", cur_memory["name"])
         content_append(messages, "system", "\n\n" + generic + "\n\n")
 
-    _memory_notes = _memory_notes_raw or mem_settings.get("memoryNotes", "")
     if _memory_notes:
-        _memory_notes = _memory_notes.replace("{{user}}", _user_name).replace("{{char}}", _char_name)
-        content_append(messages, "system", "\n## 记忆笔记\n" + _memory_notes + "\n")
+        content_append(messages, "system", "\n## 记忆笔记\n" + _replace(_memory_notes) + "\n")
 
     if include_diary_summary:
         _user_msgs = [m for m in messages if m.get("role") == "user"]
@@ -292,8 +297,7 @@ async def read_heartbeat_md(settings: dict) -> str:
     try:
         from py.lover_memory_fts import lover_data_root as _lover_root
 
-        _lover_dir = _lover_root()
-        p = _lover_dir / "HEARTBEAT.md"
+        p = _lover_root() / LOVER_FILES["heartbeat"]
         if not p.is_file():
             return ""
         return await asyncio.to_thread(

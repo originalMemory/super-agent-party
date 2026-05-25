@@ -1274,9 +1274,9 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict,is_sub
     from py.acpx_tools import acpx_agent
     from py.character_card_tools import (
         get_character_card,
+        get_lover_context,
         update_character_card,
-        update_user_profile,
-        update_memory_notes,
+        update_lover_context,
     )
 
     # ==================== 2. 定义工具映射表 ====================
@@ -1390,9 +1390,9 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict,is_sub
         "acpx_agent":acpx_agent,
 
         "get_character_card": get_character_card,
+        "get_lover_context": get_lover_context,
         "update_character_card": update_character_card,
-        "update_user_profile": update_user_profile,
-        "update_memory_notes": update_memory_notes,
+        "update_lover_context": update_lover_context,
     }
     
     # ==================== 3. 权限拦截逻辑 (Human-in-the-loop) ====================
@@ -1411,8 +1411,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict,is_sub
         "docker_manage_ports_tool",
         "local_net_tool",
         "update_character_card",
-        "update_user_profile",
-        "update_memory_notes",
+        "update_lover_context",
     ]
     
     # 只有当调用的工具属于敏感工具列表时才进行拦截检查
@@ -1614,7 +1613,7 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict,is_sub
             settings = ret_out
             await ws_manager.broadcast_settings_update(settings)
             ret_out = "任务设置成功！"
-        elif tool_name in ("update_character_card", "update_user_profile", "update_memory_notes"):
+        elif tool_name in ("update_character_card", "update_lover_context"):
             updated_settings = await load_settings()
             await ws_manager.broadcast_settings_update(updated_settings)
         return ret_out
@@ -3757,14 +3756,14 @@ async def generate_stream_response(client, reasoner_client, request: ChatRequest
         if settings["memorySettings"]["is_memory"] and settings["memorySettings"]["selectedMemory"] and not request.is_sub_agent:
             from py.character_card_tools import (
                 get_character_card_tool,
+                get_lover_context_tool,
                 update_character_card_tool,
-                update_user_profile_tool,
-                update_memory_notes_tool,
+                update_lover_context_tool,
             )
             tools.append(get_character_card_tool)
+            tools.append(get_lover_context_tool)
             tools.append(update_character_card_tool)
-            tools.append(update_user_profile_tool)
-            tools.append(update_memory_notes_tool)
+            tools.append(update_lover_context_tool)
 
         source_prompt = ""
         if request.fileLinks:
@@ -6651,9 +6650,9 @@ async def execute_tool_manually(request: Request):
     from py.acpx_tools import acpx_agent
     from py.character_card_tools import (
         get_character_card,
+        get_lover_context,
         update_character_card,
-        update_user_profile,
-        update_memory_notes,
+        update_lover_context,
     )
 
     # ==================== 2. 定义工具映射表 ====================
@@ -6767,9 +6766,9 @@ async def execute_tool_manually(request: Request):
         "acpx_agent":acpx_agent,
 
         "get_character_card": get_character_card,
+        "get_lover_context": get_lover_context,
         "update_character_card": update_character_card,
-        "update_user_profile": update_user_profile,
-        "update_memory_notes": update_memory_notes,
+        "update_lover_context": update_lover_context,
     }
     
 
@@ -7614,8 +7613,8 @@ async def desktop_awareness_check(req: DesktopAwarenessCheckRequest = DesktopAwa
 # ---------------------------------------------------------------------------
 
 HEARTBEAT_SAFE_TOOLS = {
-    "get_character_card", "update_character_card",
-    "update_user_profile", "update_memory_notes",
+    "get_character_card", "get_lover_context",
+    "update_character_card", "update_lover_context",
     "DDGsearch", "searxng",
     "time", "get_weather", "get_weather_by_city",
 }
@@ -7655,15 +7654,15 @@ def _collect_heartbeat_tools(settings: dict) -> list:
     if mem_settings.get("is_memory") and mem_settings.get("selectedMemory"):
         from py.character_card_tools import (
             get_character_card_tool,
+            get_lover_context_tool,
             update_character_card_tool,
-            update_memory_notes_tool,
-            update_user_profile_tool,
+            update_lover_context_tool,
         )
         tools.extend([
             get_character_card_tool,
+            get_lover_context_tool,
             update_character_card_tool,
-            update_memory_notes_tool,
-            update_user_profile_tool,
+            update_lover_context_tool,
         ])
 
     web_search = settings.get("webSearch") or {}
@@ -7891,6 +7890,47 @@ async def rebuild_memory_index_endpoint():
         return {"success": True, "message": "索引重建完成"}
     except Exception as e:
         logging.getLogger(__name__).warning("[FTS] 重建索引失败: %s", e)
+        return {"success": False, "message": str(e)}
+
+
+@app.get("/api/lover/file")
+async def read_lover_file(name: str):
+    """读取 lover 数据目录下的 .md 文件（SOUL/USER/MEMORY）。"""
+    from py.lover_system_context import LOVER_FILE_NAMES
+    if name not in LOVER_FILE_NAMES:
+        return {"success": False, "content": "", "message": f"不允许读取 {name}"}
+    try:
+        from py.lover_memory_fts import lover_data_root
+        p = lover_data_root() / name
+        if not p.is_file():
+            return {"success": True, "content": "", "exists": False}
+        content = await asyncio.to_thread(
+            lambda: p.read_text(encoding="utf-8", errors="replace")
+        )
+        return {"success": True, "content": content, "exists": True}
+    except Exception as e:
+        return {"success": False, "content": "", "message": str(e)}
+
+
+class WriteLoverFileRequest(BaseModel):
+    name: str
+    content: str
+
+@app.post("/api/lover/file")
+async def write_lover_file(req: WriteLoverFileRequest):
+    """写入 lover 数据目录下的 .md 文件（SOUL/USER/MEMORY）。"""
+    from py.lover_system_context import LOVER_FILE_NAMES
+    if req.name not in LOVER_FILE_NAMES:
+        return {"success": False, "message": f"不允许写入 {req.name}"}
+    try:
+        from py.lover_memory_fts import lover_data_root
+        p = lover_data_root() / req.name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(
+            lambda: p.write_text(req.content, encoding="utf-8")
+        )
+        return {"success": True, "file": str(p)}
+    except Exception as e:
         return {"success": False, "message": str(e)}
 
 

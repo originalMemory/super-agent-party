@@ -3143,7 +3143,7 @@ function updateElement(el, rawMarkdown, formatFn) {
             <div class="suite-content">
               <!-- 角色卡 -->
               <div v-show="subMenu === 'memory'" class="page">
-                <el-tabs v-model="activeMemoryTab">
+                <el-tabs v-model="activeMemoryTab" @tab-click="onMemoryTabSwitch">
                   <!-- 记忆配置标签页 -->
                   <el-tab-pane :label="t('memoryConfig')" name="config">
                     <el-form :model="memorySettings" class="settings-form"  label-position="top">
@@ -3748,18 +3748,6 @@ function updateElement(el, rawMarkdown, formatFn) {
                             </div>
                           </el-tab-pane>
 
-                          <!-- 元层原则 (SOUL) -->
-                          <el-tab-pane name="soul" :label="t('soul')">
-                            <el-form-item>
-                              <el-input
-                                v-model="newMemory.soul"
-                                type="textarea"
-                                :rows="8"
-                                :placeholder="t('soulPlaceholder')"
-                              />
-                            </el-form-item>
-                          </el-tab-pane>
-
                           <el-tab-pane name="firstGreeting" :label="t('firstGreeting')">
                             <div
                               class="param-row"
@@ -3854,7 +3842,8 @@ function updateElement(el, rawMarkdown, formatFn) {
                   </el-tab-pane>
                   <!-- 用户档案与记忆索引 -->
                   <el-tab-pane :label="t('userMemoryTab')" name="userMemory">
-                    <el-form :model="memorySettings" class="settings-form" label-position="top">
+                    <!-- FTS 日记树配置区 -->
+                    <el-form :model="memorySettings" class="settings-form" label-position="top" style="margin-bottom: 8px;">
                       <el-form-item :label="t('memoryDirPath')" class="form-item-align">
                         <el-input
                           v-model="memorySettings.memoryDirPath"
@@ -3863,47 +3852,89 @@ function updateElement(el, rawMarkdown, formatFn) {
                           class="full-width-input"
                         />
                       </el-form-item>
-                      <el-form-item :label="t('memoryIndexSyncMinutes')" class="form-item-align">
-                        <el-slider
-                          v-model="memorySettings.memoryIndexSyncMinutes"
-                          :min="1"
-                          :max="60"
-                          :step="1"
-                          show-input
-                          @input="autoSaveSettings"
-                        />
-                      </el-form-item>
-                      <el-form-item class="form-item-align">
-                        <el-button size="small" @click="rebuildMemoryIndex" plain>
+                      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                        <el-form-item :label="t('memoryIndexSyncMinutes')" class="form-item-align" style="flex:1;margin-bottom:0;">
+                          <el-slider
+                            v-model="memorySettings.memoryIndexSyncMinutes"
+                            :min="1"
+                            :max="60"
+                            :step="1"
+                            show-input
+                            @input="autoSaveSettings"
+                          />
+                        </el-form-item>
+                        <el-button size="small" @click="rebuildMemoryIndex" plain style="margin-top:18px;">
                           <i class="fa-solid fa-rotate" style="margin-right: 4px;"></i>{{ t('ftsRebuildIndex') }}
                         </el-button>
-                        <span style="margin-left: 8px; font-size: 12px; opacity: 0.6;">{{ t('ftsRebuildIndexHint') }}</span>
-                      </el-form-item>
-                      <el-form-item :label="t('memoryNotes')" class="form-item-align">
-                        <el-input
-                          v-model="memorySettings.memoryNotes"
-                          :placeholder="t('memoryNotesPlaceholder')"
-                          type="textarea"
-                          :rows="8"
-                          @input="autoSaveSettings"
-                          class="full-width-input"
-                        />
-                      </el-form-item>
-                      <el-form-item class="form-item-align">
-                        <template #label>
-                          {{ t('userProfile') }}
-                          <el-tag size="small" type="info" style="margin-left:6px">{{ t('userProfileShared') }}</el-tag>
-                        </template>
-                        <el-input
-                          v-model="memorySettings.userProfile"
-                          :placeholder="t('userProfilePlaceholder')"
-                          type="textarea"
-                          :rows="8"
-                          @input="autoSaveSettings"
-                          class="full-width-input"
-                        />
-                      </el-form-item>
+                      </div>
                     </el-form>
+                    <!-- 三者子 Tab：元层原则 / 用户档案 / 记忆笔记 -->
+                    <el-tabs v-model="activeLoverFileTab" @tab-click="onLoverFileTabSwitch">
+                      <el-tab-pane name="soul" :label="t('soul')">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                          <span style="font-size:12px;opacity:0.55;">{{ t('soulHint') }}</span>
+                          <el-button circle size="small" @click="loadLoverFile('SOUL.md')" :loading="loverFileLoading.soul">
+                            <i class="fa-solid fa-rotate"></i>
+                          </el-button>
+                        </div>
+                        <el-input
+                          v-model="loverFiles.soul"
+                          type="textarea"
+                          :rows="14"
+                          :placeholder="t('soulPlaceholder')"
+                          @input="debouncedSaveLoverFile('SOUL.md', 'soul')"
+                          class="full-width-input"
+                        />
+                      </el-tab-pane>
+                      <el-tab-pane name="userProfile" :label="t('userProfile')">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                          <span style="font-size:12px;opacity:0.55;">{{ t('userProfileHint') }}</span>
+                          <el-button circle size="small" @click="loadLoverFile('USER.md')" :loading="loverFileLoading.userProfile">
+                            <i class="fa-solid fa-rotate"></i>
+                          </el-button>
+                        </div>
+                        <el-input
+                          v-model="loverFiles.userProfile"
+                          type="textarea"
+                          :rows="14"
+                          :placeholder="t('userProfilePlaceholder')"
+                          @input="debouncedSaveLoverFile('USER.md', 'userProfile')"
+                          class="full-width-input"
+                        />
+                      </el-tab-pane>
+                      <el-tab-pane name="memoryNotes" :label="t('memoryNotes')">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                          <span style="font-size:12px;opacity:0.55;">{{ t('memoryNotesHint') }}</span>
+                          <el-button circle size="small" @click="loadLoverFile('MEMORY.md')" :loading="loverFileLoading.memoryNotes">
+                            <i class="fa-solid fa-rotate"></i>
+                          </el-button>
+                        </div>
+                        <el-input
+                          v-model="loverFiles.memoryNotes"
+                          type="textarea"
+                          :rows="14"
+                          :placeholder="t('memoryNotesPlaceholder')"
+                          @input="debouncedSaveLoverFile('MEMORY.md', 'memoryNotes')"
+                          class="full-width-input"
+                        />
+                      </el-tab-pane>
+                      <el-tab-pane name="heartbeat" :label="t('heartbeatFile')">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                          <span style="font-size:12px;opacity:0.55;">{{ t('heartbeatFileHint') }}</span>
+                          <el-button circle size="small" @click="loadLoverFile('HEARTBEAT.md')" :loading="loverFileLoading.heartbeat">
+                            <i class="fa-solid fa-rotate"></i>
+                          </el-button>
+                        </div>
+                        <el-input
+                          v-model="loverFiles.heartbeat"
+                          type="textarea"
+                          :rows="14"
+                          :placeholder="t('heartbeatFilePlaceholder')"
+                          @input="debouncedSaveLoverFile('HEARTBEAT.md', 'heartbeat')"
+                          class="full-width-input"
+                        />
+                      </el-tab-pane>
+                    </el-tabs>
                   </el-tab-pane>
                   <!-- 系统提示词标签页 -->
                   <el-tab-pane :label="t('addSystemPrompt')" name="prompts">

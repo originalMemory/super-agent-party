@@ -10,11 +10,11 @@
 
 | OpenClaw 概念 | SAP 映射 | 存储 |
 |---------------|----------|------|
-| **SOUL.md**（元层原则） | `memories[i].soul`（新增字段） | settings JSON |
+| **SOUL.md**（元层原则） | 全局共享 | `lover/SOUL.md` 文件（唯一数据源） |
 | **IDENTITY.md**（叙事身份） | `memories[i].description` + `personality` + `systemPrompt`（已有字段覆盖） | settings JSON |
-| **USER.md**（用户档案） | `memorySettings.userProfile`（新增字段，全局共享） | settings JSON |
-| **MEMORY.md**（长期记忆） | `memorySettings.memoryNotes`（新增字段，全局共享） | settings JSON |
-| **HEARTBEAT.md**（心跳任务） | `lover/HEARTBEAT.md` 文件（动态，心跳时注入） | 文件系统 |
+| **USER.md**（用户档案） | 全局共享 | `lover/USER.md` 文件（唯一数据源） |
+| **MEMORY.md**（长期记忆） | 全局共享 | `lover/MEMORY.md` 文件（唯一数据源） |
+| **HEARTBEAT.md**（心跳任务） | 全局共享 | `lover/HEARTBEAT.md` 文件（唯一数据源） |
 | **AGENTS.md**（操作约束） | 全局 `system_prompt` + 工作区 `.agent/AGENTS.md`（已有通路） | 现有路径不变 |
 
 ## 字段职责
@@ -29,9 +29,10 @@
 | **`systemPrompt`** | 角色卡级 | 额外系统提示（已有） | ⑧ |
 | **`genericSystemPrompt`** | 全局（memorySettings） | 通用系统提示（已有） | ⑨ |
 | **MEMORY.md** | `lover/MEMORY.md` 文件 | 手写长期记忆，所有角色共享，与 mem0 互补 | ⑩ genericSystemPrompt 之后 |
+| **HEARTBEAT.md** | `lover/HEARTBEAT.md` 文件 | 心跳任务备忘，心跳触发时注入 | 仅心跳 prompt |
 | **mem0 recall** | 角色卡级 | 自动向量记忆（已有） | ⑫ 最后 |
 
-> 所有 `.md` 文件来源优先于配置字段（`soul`/`userProfile`/`memoryNotes`），配置字段仅作 fallback。
+> `SOUL.md` / `USER.md` / `MEMORY.md` / `HEARTBEAT.md` 是唯一数据源，不再有 settings JSON fallback。前端「用户档案与记忆」Tab 可直接编辑四个文件。
 
 ## AGENTS.md 处理
 
@@ -46,9 +47,10 @@
 
 | 层次 | 机制 | 写入方 | 注入时机 | 说明 |
 |------|------|--------|----------|------|
-| SOUL.md | `lover/SOUL.md` 文件 | 用户 | 每轮 bootstrap 常驻 | 不进 FTS |
-| USER.md | `lover/USER.md` 文件 | 用户 | 每轮 bootstrap 常驻 | 不进 FTS |
+| SOUL.md | `lover/SOUL.md` 文件 | 用户 / AI | 每轮 bootstrap 常驻 | 不进 FTS |
+| USER.md | `lover/USER.md` 文件 | 用户 / AI | 每轮 bootstrap 常驻 | 不进 FTS |
 | MEMORY.md | `lover/MEMORY.md` 文件 | 用户 / AI | 每轮 bootstrap 常驻 | **不进 FTS**——内容量可控，全文注入 |
+| HEARTBEAT.md | `lover/HEARTBEAT.md` 文件 | 用户 | 心跳触发时注入 | 不进 FTS |
 | 日记树 FTS | SQLite FTS5 | 摘要回流 / 用户手写 | 每轮动态检索 | **核心记忆检索方式** |
 | mem0 recall | 向量检索 | AI 自动提炼 | 每轮动态 | **默认关闭**，用户可手动开启 |
 
@@ -82,11 +84,12 @@
 | 工具 | 功能 | 权限 |
 |------|------|------|
 | `get_character_card` | 读取当前角色卡字段 + userProfile + memoryNotes | 无需审批 |
-| `update_character_card` | 修改角色卡指定字段（白名单：soul/description/personality/systemPrompt/mesExample） | 需用户审批 |
-| `update_user_profile` | 修改全局用户档案 | 需用户审批 |
-| `update_memory_notes` | 修改全局记忆笔记 | 需用户审批 |
+| `update_character_card` | 修改角色卡指定字段（白名单：description/personality/systemPrompt/mesExample） | 需用户审批 |
+| `update_soul` | 修改全局元层原则（写入 `lover/SOUL.md`） | 需用户审批 |
+| `update_user_profile` | 修改全局用户档案（写入 `lover/USER.md`） | 需用户审批 |
+| `update_memory_notes` | 修改全局记忆笔记（写入 `lover/MEMORY.md`） | 需用户审批 |
 
-使用场景：AI 发现用户新事实 → 更新 memoryNotes（全局）；AI 根据反馈调整 soul / personality。
+使用场景：AI 发现用户新事实 → 更新 memoryNotes / userProfile（全局）；AI 根据反馈调整 soul / personality。
 
 ## 桌面主动感知（Desktop Awareness）
 
@@ -110,8 +113,8 @@
 | `heartbeat.enableTools` | `true` | 心跳时是否允许 LLM 调用工具 |
 | `heartbeat.maxToolRounds` | `20` | 最多工具调用轮数（上限 50） |
 
-- **HEARTBEAT.md**：`lover/HEARTBEAT.md` 文件存在时，内容注入 system prompt `## 心跳任务 (HEARTBEAT)` 区块
-- **安全工具白名单**：`get_character_card`、`update_character_card`、`update_user_profile`、`update_memory_notes`、`DDGsearch`、`searxng`、`time`、`get_weather`、`get_weather_by_city`
+- **HEARTBEAT.md**：`lover/HEARTBEAT.md` 文件存在时，内容注入心跳 prompt；前端可在「用户档案与记忆 → 心跳任务」Tab 直接编辑
+- **安全工具白名单**：`get_character_card`、`update_character_card`、`update_soul`、`update_user_profile`、`update_memory_notes`、`DDGsearch`、`searxng`、`time`、`get_weather`、`get_weather_by_city`
 - **写入路径**：后端直接 `save_covs` + WebSocket `heartbeat_message` 广播；前端收到后追加到主会话 UI
 - **与桌面感知区别**：见上方「桌面主动感知」章节
 
@@ -119,7 +122,7 @@
 
 **期望**：所有经 `/v1/chat/completions` 的对话（含 bot 行为推送、非流式 API）均走完整角色卡注入，以保持人格一致。
 
-**常驻 `.md` / 配置块**（`USER.md`、`SOUL.md`、`MEMORY.md` 及 settings 中的 `userProfile` / `memoryNotes` / `soul` 等）单文件通常为几 KB 量级。按中文约 1.5–2 字符/token 粗算，三者合计多在 **约 1k–3k tokens** 以内（视实际字数而定），相对 `description`、世界书命中、`## 相关回忆` FTS 片段、mem0 召回仍属可控开销。空字段会跳过，不注入。
+**常驻 `.md` 文件**（`SOUL.md`、`USER.md`、`MEMORY.md`）单文件通常为几 KB 量级。按中文约 1.5–2 字符/token 粗算，三者合计多在 **约 1k–3k tokens** 以内（视实际字数而定），相对 `description`、世界书命中、`## 相关回忆` FTS 片段、mem0 召回仍属可控开销。`HEARTBEAT.md` 仅在心跳时注入，不占常驻 token。文件不存在或为空时跳过，不注入。
 
 **动态部分**才更占 token：世界书按关键词命中追加、每轮 FTS top-N、mem0 JSON、工具/视觉等 system 追加。长期记忆「文件不大」的判断主要针对常驻层；若需对 bot 关闭 FTS/mem0，可后续按 `is_app_bot` 做可选裁剪（当前未做）。
 
