@@ -25,12 +25,12 @@
 
 ## 4. 前端调度与执行
 
-- [ ] 4.1 `static/js/renderer.js`：重构 time/noInput/cycle 三个定时器，增加 `runInBackground` 过滤——仅调度 `runInBackground === false` 的行为
-- [ ] 4.2 `static/js/vue_methods.js` `runBehavior`：增加 `skipIfRecentlyActive` 检查逻辑（调用辅助方法判断主分组近期活动）
-- [ ] 4.3 `static/js/vue_methods.js` `runBehavior`：增加 `action.type === "desktopAwareness"` 分支——Electron 环境下先 `powerMonitor.getSystemIdleState()` 检测锁屏/idle（命中则跳过），再 `desktopCapturer.getSources()` 截图 → 组装带图片的消息 → `sendMessage()`；非 Electron 环境静默跳过
-- [ ] 4.4 `static/js/vue_methods.js` `runBehavior`：在调用 `sendMessage` 前设置 `_behaviorTriggerMeta = { messageKind }`；`generateAIResponse` 组装 assistant 回复时据此写入 `messageKind`
-- [ ] 4.5 `static/js/vue_methods.js` `runBehavior`：执行后根据 `noActionDetection` 检查 LLM 回复是否包含 NO_ACTION 标记，命中则移除 assistant 回复消息
-- [ ] 4.6 触发前抛弃 `[system]:` 前缀重复触发的防抖：复用现有 `_behaviorTriggerMeta` 状态避免并发触发同一行为
+- [x] 4.1 `static/js/renderer.js`：重构 time/noInput/cycle 三个定时器，增加 `runInBackground` 过滤——仅调度 `runInBackground === false` 的行为
+- [x] 4.2 `static/js/vue_methods.js` `runBehavior`：增加 `skipIfRecentlyActive` 检查逻辑（调用辅助方法判断主分组近期活动）
+- [x] 4.3 `static/js/vue_methods.js` `runBehavior`：增加 `action.type === "desktopAwareness"` 分支——Electron 环境下先 `powerMonitor.getSystemIdleState()` 检测锁屏/idle（命中则跳过），再 `desktopCapturer.getSources()` 截图 → 组装带图片的消息 → `sendMessage()`；非 Electron 环境静默跳过
+- [x] 4.4 `static/js/vue_methods.js` `runBehavior`：在调用 `sendMessage` 前设置 `_behaviorTriggerMeta = { messageKind }`；`generateAIResponse` 组装 assistant 回复时据此写入 `messageKind`
+- [x] 4.5 `static/js/vue_methods.js` `runBehavior`：执行后根据 `noActionDetection` 检查 LLM 回复是否包含 NO_ACTION 标记，命中则移除 assistant 回复消息
+- [x] 4.6 触发前抛弃 `[system]:` 前缀重复触发的防抖：复用现有 `_behaviorTriggerMeta` 状态避免并发触发同一行为
 
 ## 5. 后端调度器
 

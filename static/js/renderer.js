@@ -895,35 +895,40 @@ const app = Vue.createApp({
       const hm = now.toLocaleTimeString('zh-CN', { hour12: false }) 
       const d  = now.getDay() 
       this.behaviorSettings.behaviorList.forEach(b => {
-        // 关键改动：使用 isTargetPlatform 检查是否属于当前网页端(chat)任务
-        if (!b.enabled || b.trigger.type !== 'time' || !this.isTargetPlatform(b, 'chat')) return
+        // 跳过后端调度(runInBackground)的行为，使用 isTargetPlatform 检查是否属于当前网页端(chat)任务
+        if (!b.enabled || b.runInBackground || b.trigger.type !== 'time' || !this.isTargetPlatform(b, 'chat')) return
         const tv = b.trigger.time.timeValue
         const ds = b.trigger.time.days
         if (tv === hm) {
           if (ds.length === 0 || ds.includes(d)) {
             this.runBehavior(b)
-            this.disableOnceBehavior(b)
+              .then(ran => { if (ran) this.disableOnceBehavior(b) })
+              .catch(e => console.error('[behavior] time trigger error:', e))
           }
         }
       })
     }, 1000)
 
-    // 2. 无输入触发器
-    this.noInputSec = 0 
+    // 2. 无输入触发器（每个行为独立计数，避免多行为共享计数器互相干扰）
+    this._noInputSecMap = new Map()
     this.behaviorNoInputTimer = setInterval(() => {
       if (!this.behaviorSettings.enabled) return
       this.behaviorSettings.behaviorList.forEach(b => {
-        // 关键改动：检查平台
-        if (!b.enabled || b.trigger.type !== 'noInput' || !this.isTargetPlatform(b, 'chat')) return
+        // 跳过后端调度(runInBackground)的行为，检查平台
+        if (!b.enabled || b.runInBackground || b.trigger.type !== 'noInput' || !this.isTargetPlatform(b, 'chat')) return
+        const id = b.id || b.name || JSON.stringify(b.trigger)
         const need = b.trigger.noInput.latency
         if (this.noInputFlag) {
-          this.noInputSec++
-          if (this.noInputSec >= need) {
+          const cur = (this._noInputSecMap.get(id) || 0) + 1
+          if (cur >= need) {
+            this._noInputSecMap.set(id, 0)
             this.runBehavior(b)
-            this.noInputSec = 0 
+              .catch(e => console.error('[behavior] noInput trigger error:', e))
+          } else {
+            this._noInputSecMap.set(id, cur)
           }
         } else {
-          this.noInputSec = 0
+          this._noInputSecMap.set(id, 0)
         }
       })
     }, 1000)
@@ -936,8 +941,8 @@ const app = Vue.createApp({
       if (!Array.isArray(this.behaviorSettings.behaviorList)) return;
 
       this.behaviorSettings.behaviorList.forEach((b, index) => {
-        // 检查 b 及其 trigger 是否存在，防止读取 b.trigger.type 报错
-        if (!b || !b.enabled || !b.trigger) return;
+        // 检查 b 及其 trigger 是否存在，防止读取 b.trigger.type 报错；跳过后端调度(runInBackground)的行为
+        if (!b || !b.enabled || b.runInBackground || !b.trigger) return;
         
         // 只处理周期类型的任务
         if (b.trigger.type !== 'cycle') return;

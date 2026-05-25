@@ -3044,6 +3044,8 @@ let vue_methods = {
                 isPlaying: false, total_tokens: 0, first_token_latency: 0, elapsedTime: 0,
                 generationFinished: false,
                 timestamp: Date.now(),
+                // 自主行为触发时写入 messageKind（heartbeat / desktopAwareness 等），供 UI 区分渲染
+                ...(this._behaviorTriggerMeta?.messageKind ? { messageKind: this._behaviorTriggerMeta.messageKind } : {}),
             };
             this.messages.push(newMsgData);
             currentMsg = this.messages[this.messages.length - 1];
@@ -12597,42 +12599,124 @@ stopTTSActivities() {
     showNotification(this.t('deleteAllBehaviorSuccess'))
     this.autoSaveSettings();
   },
-    /* 真正执行行为 */
-    runBehavior(b) {
-      if (!b.enabled) return
-      if (!this.noInputFlag){
-        this.stopGenerate()
+    _isDefaultGroupRecentlyActive(windowMinutes) {
+      const windowMs = windowMinutes * 60 * 1000;
+      const now = Date.now();
+      for (const conv of (this.conversations || [])) {
+        if ((conv.groupId || 'default') !== 'default') continue;
+        let last = parseInt(conv.timestamp) || 0;
+        for (const msg of (conv.messages || [])) {
+          if (msg.timestamp) last = Math.max(last, parseInt(msg.timestamp));
+        }
+        if (last && (now - last) < windowMs) return true;
       }
-      if (b.action.type === 'prompt' && b.action.prompt) {
-        console.log('Prompt:', b.action.prompt)
-        this.userInput= '[system]:'+ b.action.prompt
-        // 这里把 prompt 发给你的模型即可，举例：
-        this.sendMessage();
+      return false;
+    },
+
+    _isBehaviorNoAction(reply) {
+      const normalized = (reply || '').trim();
+      if (!normalized) return false;
+      if (normalized === '[NO_ACTION]') return true;
+      return normalized.replace(/`/g, '').trim() === '[NO_ACTION]';
+    },
+
+    async runBehavior(b) {
+      if (!b.enabled) return false;
+      if (this._behaviorTriggerMeta) {
+        console.log('[behavior] 已有行为正在执行，跳过并发触发');
+        return false;
       }
-      if (b.action.type === 'random' && b.action.random) {
-        if(b.action.random.events.length > 0){
-          if (b.action.random.type === 'random'){
-            let randomEvent = b.action.random.events[Math.floor(Math.random() * b.action.random.events.length)];
-            if(randomEvent){
-              this.userInput= '[system]:'+randomEvent;
-              // 这里把 prompt 发给你的模型即可，举例：
-              this.sendMessage();
-            }
-          }else if( b.action.random.type === 'order'){
-            if(b.action.random.orderIndex >= b.action.random.events.length){
+
+      if (b.skipIfRecentlyActive && this._isDefaultGroupRecentlyActive(b.skipWindowMinutes || 30)) {
+        console.log('[behavior] 主分组近期有活动，跳过');
+        return false;
+      }
+
+      if (!this.noInputFlag) {
+        this.stopGenerate();
+      }
+
+      const messageKind = b.messageKind || 'chat';
+      this._behaviorTriggerMeta = { messageKind };
+
+      try {
+        let userInput = null;
+
+        if (b.action.type === 'prompt' && b.action.prompt) {
+          userInput = '[system]:' + b.action.prompt;
+        } else if (b.action.type === 'random' && b.action.random && b.action.random.events.length > 0) {
+          if (b.action.random.type === 'random') {
+            const event = b.action.random.events[Math.floor(Math.random() * b.action.random.events.length)];
+            if (event) userInput = '[system]:' + event;
+          } else if (b.action.random.type === 'order') {
+            if (b.action.random.orderIndex >= b.action.random.events.length) {
               b.action.random.orderIndex = 0;
             }
-            if(b.action.random.events[b.action.random.orderIndex]){
-              let randomEvent = b.action.random.events[b.action.random.orderIndex];
-              b.action.random.orderIndex += 1;
-              if(randomEvent){
-                this.userInput= '[system]:'+randomEvent;
-                // 这里把 prompt 发给你的模型即可，举例：
-                this.sendMessage();
+            const event = b.action.random.events[b.action.random.orderIndex];
+            b.action.random.orderIndex += 1;
+            if (event) userInput = '[system]:' + event;
+          }
+        } else if (b.action.type === 'desktopAwareness') {
+          if (!isElectron || !window.electronAPI) {
+            console.log('[behavior] desktopAwareness: 非 Electron 环境，静默跳过');
+            return false;
+          }
+          try {
+            if (typeof window.electronAPI.getSystemIdleState === 'function') {
+              const idleState = await window.electronAPI.getSystemIdleState(60);
+              if (idleState === 'locked' || idleState === 'idle') {
+                console.log('[behavior] desktopAwareness: 系统处于', idleState, '状态，跳过');
+                return false;
               }
             }
+            if (typeof window.electronAPI.captureScreen === 'function') {
+              const screenshotDataUrl = await window.electronAPI.captureScreen();
+              if (screenshotDataUrl) {
+                const now = new Date();
+                const nowStr = now.toLocaleString('zh-CN', { hour12: false });
+                const awarenessPrompt =
+                  '你正在进行一次定时桌面感知检查。以下是用户当前的桌面截图。\n\n' +
+                  `当前时间：${nowStr}\n\n` +
+                  '请根据截图与对话上下文判断：\n' +
+                  '1. 用户当前大概在做什么？\n' +
+                  '2. 是否有值得关心、提醒或聊几句的场景？\n\n' +
+                  '如果你觉得不需要打扰用户，请仅回复 `[NO_ACTION]`。\n' +
+                  '如果你觉得适合主动说点什么，请直接输出你想对用户说的话。';
+                this.userInput = '[system]:' + awarenessPrompt;
+                this.images = [{ path: screenshotDataUrl, name: 'desktop_screenshot.png' }];
+                await this.sendMessage();
+                userInput = null;
+              } else {
+                console.log('[behavior] desktopAwareness: 截图返回空，跳过');
+                return false;
+              }
+            } else {
+              console.log('[behavior] desktopAwareness: electronAPI.captureScreen 不可用，跳过');
+              return false;
+            }
+          } catch (e) {
+            console.warn('[behavior] desktopAwareness 异常:', e);
+            this.userInput = '';
+            this.images = [];
+            return false;
           }
         }
+
+        if (userInput) {
+          this.userInput = userInput;
+          await this.sendMessage();
+        }
+
+        if (b.noActionDetection) {
+          const lastMsg = this.messages[this.messages.length - 1];
+          if (lastMsg && lastMsg.role === 'assistant' && this._isBehaviorNoAction(lastMsg.pure_content || lastMsg.content)) {
+            console.log('[behavior] LLM 回复 NO_ACTION，移除 assistant 消息');
+            this.messages.pop();
+          }
+        }
+        return true;
+      } finally {
+        this._behaviorTriggerMeta = null;
       }
     },
 
@@ -12701,7 +12785,12 @@ initCycleTimer(behavior, index) {
     if (!behavior || !behavior.enabled || !this.isTargetPlatform(behavior, 'chat')) return;
     
     if (behavior.trigger.cycle.isInfiniteLoop || currentCount < behavior.trigger.cycle.repeatNumber) {
-      this.runBehavior(behavior);
+      this.runBehavior(behavior)
+        .then(ran => {
+          if (ran) console.log('[behavior] cycle trigger executed');
+          else console.log('[behavior] cycle trigger skipped');
+        })
+        .catch(e => console.error('[behavior] cycle trigger error:', e));
       currentCount++;
       if (!behavior.trigger.cycle.isInfiniteLoop && currentCount >= behavior.trigger.cycle.repeatNumber) {
         clearInterval(this.cycleTimers[index]);
