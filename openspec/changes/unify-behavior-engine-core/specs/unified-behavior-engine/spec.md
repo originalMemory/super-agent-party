@@ -91,7 +91,7 @@
 
 #### Scenario: Desktop awareness in non-Electron environment
 - **WHEN** 前端触发一个 `action.type = "desktopAwareness"` 的行为，但不在 Electron 环境中
-- **THEN** 静默跳过，记录跳过日志，不报错
+- **THEN** 静默跳过，不报错
 
 #### Scenario: Random behavior execution
 - **WHEN** 前端触发一个 `action.type = "random"` 的行为
@@ -117,7 +117,7 @@
 
 #### Scenario: Recent activity within window
 - **WHEN** 行为触发时，主分组内任一会话在 `skipWindowMinutes` 分钟内有过用户消息
-- **THEN** 跳过本次触发，记录跳过日志
+- **THEN** 跳过本次触发
 
 #### Scenario: No recent activity
 - **WHEN** 行为触发时，主分组内所有会话超过 `skipWindowMinutes` 分钟无活动
@@ -128,38 +128,19 @@
 - **THEN** 不检查近期活动，直接执行
 
 ### Requirement: No-action detection
-当行为项 `noActionDetection = true` 时，系统 SHALL 检查 LLM 回复是否包含 NO_ACTION 标记。若检测到，则不将回复追加到对话流中。
+当行为项 `noActionDetection = true` 时，系统 SHALL 检查 LLM 回复是否包含 NO_ACTION 标记。若检测到，则不将 assistant 回复追加到对话流中。
 
 #### Scenario: LLM replies with NO_ACTION
 - **WHEN** LLM 回复内容匹配 NO_ACTION 模式（如 `[NO_ACTION]` 或 `无需行动`）
-- **THEN** 不将回复追加到主会话，记录"无需行动"日志
+- **THEN** 不将 assistant 回复追加到主会话
 
 #### Scenario: LLM replies with normal content
 - **WHEN** LLM 回复不含 NO_ACTION 标记
-- **THEN** 正常追加回复到主会话
+- **THEN** 正常追加 assistant 回复到主会话
 
 #### Scenario: noActionDetection disabled
 - **WHEN** 行为项 `noActionDetection = false`
 - **THEN** 不检查 NO_ACTION，所有回复均追加到对话
-
-### Requirement: Behavior only produces one assistant message in history
-自主行为的执行结果在对话历史中 SHALL 仅体现为**一条 assistant 消息**（带 `messageKind` 标记）。触发 prompt、过程中的 system 注入等中间消息 SHALL NOT 出现在持久化的对话历史中。
-
-#### Scenario: Frontend behavior completes successfully
-- **WHEN** 前端 `runBehavior` 通过 `sendMessage()` 触发行为，LLM 回复完成
-- **THEN** 持久化的对话历史中仅新增一条 `{ role: "assistant", messageKind: <配置值> }` 消息；触发用的 `[system]:prompt` user 消息在 `saveConversations()` 之前从 `this.messages` 中移除
-
-#### Scenario: Backend behavior completes successfully
-- **WHEN** 后端调度触发行为，LLM 返回有效回复
-- **THEN** 仅将 `{ role: "assistant", messageKind: <配置值> }` 写入主会话的持久化 messages；trigger prompt 仅存在于本次 API 调用的临时消息列表中
-
-#### Scenario: LLM still receives trigger message for context
-- **WHEN** 行为触发时 LLM 被调用
-- **THEN** LLM 的 messages 入参中包含 trigger prompt（作为 user 消息），确保模型知道触发意图；该消息仅用于本次调用，不持久化
-
-#### Scenario: NO_ACTION results in zero messages
-- **WHEN** 行为启用了 `noActionDetection` 且 LLM 回复包含 NO_ACTION 标记
-- **THEN** 对话历史中不新增任何消息（trigger 消息移除 + assistant 回复也移除）
 
 ### Requirement: MessageKind tagging
 行为触发的 **assistant 回复消息** SHALL 携带 `messageKind` 字段（取自行为项配置），用于前端 UI 区分消息来源和渲染样式。
@@ -176,23 +157,8 @@
 - **WHEN** 行为项 `messageKind = "chat"`
 - **THEN** 触发的消息以普通对话消息样式渲染，无特殊标记
 
-### Requirement: Execution log
-系统 SHALL 在内存中维护最近 50 条行为执行日志。每条日志包含：触发时间戳、行为名称/presetId、触发类型、执行结果（`executed` / `skipped_recent_active` / `skipped_screen_off` / `skipped_no_action` / `error`）。
-
-#### Scenario: Behavior executed successfully
-- **WHEN** 一个行为被触发并成功执行（LLM 返回有效回复）
-- **THEN** 日志记录 `executed`
-
-#### Scenario: Behavior skipped
-- **WHEN** 一个行为因近期活动/息屏/NO_ACTION 被跳过
-- **THEN** 日志记录对应的跳过原因
-
-#### Scenario: Log viewable in UI
-- **WHEN** 用户在自主行为配置页点击"执行日志"
-- **THEN** 展示最近的执行记录列表
-
 ### Requirement: Remove legacy heartbeat system
-系统 SHALL 移除所有独立的心跳子系统代码，包括：后端 `_heartbeat_periodic_loop` 定时器、`_run_heartbeat_check` 函数、`_collect_heartbeat_tools` 函数、`_execute_heartbeat_tool_calls` 函数、`_heartbeat_write_and_broadcast` 函数、`/api/lover/heartbeat-check` API endpoint、HEARTBEAT.md 文件读取逻辑、`heartbeat_skip_window_ms` 辅助函数、`read_heartbeat_md` 辅助函数、前端 `runHeartbeatCheck` 方法、前端 `_handleHeartbeatMessage` 方法、WebSocket `heartbeat_message` 处理分支、`settings_template.json` 顶层 `heartbeat` 配置块、前端心跳配置 UI 面板。
+系统 SHALL 移除所有独立的心跳子系统代码，包括：后端 `_heartbeat_periodic_loop` 定时器、`_run_heartbeat_check` 函数、`_collect_heartbeat_tools` 函数、`_execute_heartbeat_tool_calls` 函数、`_heartbeat_write_and_broadcast` 函数、`/api/lover/heartbeat-check` API endpoint、`HEARTBEAT.md` 文件读取逻辑、`heartbeat_skip_window_ms` 辅助函数、`read_heartbeat_md` 辅助函数、前端 `runHeartbeatCheck` 方法、前端 `_handleHeartbeatMessage` 方法、WebSocket `heartbeat_message` 处理分支、`settings_template.json` 顶层 `heartbeat` 配置块、前端心跳配置 UI 面板。
 
 #### Scenario: Heartbeat endpoint removed
 - **WHEN** 客户端请求 `POST /api/lover/heartbeat-check`
@@ -202,8 +168,12 @@
 - **WHEN** 系统加载 settings
 - **THEN** 顶层不存在 `heartbeat` 配置键（心跳配置已迁移到 `behaviorSettings.behaviorList` 中的预设项）
 
+#### Scenario: HEARTBEAT.md content migrated
+- **WHEN** 心跳预设行为项被加载
+- **THEN** 心跳指令文本完整存储在 `action.prompt` 字段中，不再依赖 `HEARTBEAT.md` 独立文件
+
 ### Requirement: Remove legacy desktop awareness system
-系统 SHALL 移除所有独立的桌面感知子系统代码，包括：`/api/lover/desktop-awareness-check` API endpoint、前端 `startDesktopAwarenessTimer` / `stopDesktopAwarenessTimer` / `runDesktopAwarenessCheck` 方法、`settings_template.json` 顶层 `desktopAwareness` 配置块、前端桌面感知配置 UI 面板。截图和息屏检测的核心工具函数 SHALL 保留，供统一行为引擎复用。
+系统 SHALL 移除所有独立的桌面感知子系统代码，包括：`/api/lover/desktop-awareness-check` API endpoint、前端 `startDesktopAwarenessTimer` / `stopDesktopAwarenessTimer` / `runDesktopAwarenessCheck` 方法、`settings_template.json` 顶层 `desktopAwareness` 配置块、前端桌面感知配置 UI 面板。
 
 #### Scenario: Desktop awareness endpoint removed
 - **WHEN** 客户端请求 `POST /api/lover/desktop-awareness-check`
@@ -212,10 +182,6 @@
 #### Scenario: Desktop awareness config key removed
 - **WHEN** 系统加载 settings
 - **THEN** 顶层不存在 `desktopAwareness` 配置键
-
-#### Scenario: Screenshot utility preserved
-- **WHEN** 统一行为引擎触发桌面感知行为
-- **THEN** 可复用现有的截图和息屏检测工具函数
 
 ### Requirement: Unified behavior UI
 自主行为配置 UI SHALL 作为心跳和桌面感知的唯一配置入口。原有的独立心跳配置面板和桌面感知配置面板 SHALL 被移除。
