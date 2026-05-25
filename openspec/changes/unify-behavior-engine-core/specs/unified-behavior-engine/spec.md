@@ -97,16 +97,35 @@
 - **WHEN** 前端触发一个 `action.type = "random"` 的行为
 - **THEN** 从 `action.random.events` 中选取一条（随机或顺序），设为 `userInput` 调用 `sendMessage()`
 
+#### Scenario: Random behavior with order type — orderIndex ownership
+- **WHEN** 后端触发一个 `action.random.type = "order"` 的行为
+- **THEN** 后端 SHALL 读取 `action.random.orderIndex` 选取对应 event，但 SHALL NOT 修改 `orderIndex`。`orderIndex` 的自增由前端每次触发后持久化到 settings，后端收到的配置中已是最新值
+
 ### Requirement: Backend execution with full context
 后端调度触发的行为 SHALL 独立调用 LLM，组装完整的主会话上下文（系统提示词 + 全部对话历史 + 全量工具），执行完成后将结果写入主会话并通过 WebSocket 广播到前端。
 
 #### Scenario: Backend behavior generates reply
 - **WHEN** 后端调度触发一个 `runInBackground = true` 的行为，LLM 返回有效回复
-- **THEN** 回复以 `{ role: "assistant", messageKind: <行为的messageKind> }` 写入主会话的 messages，通过 WebSocket `behavior_message` 广播到所有连接的前端客户端
+- **THEN** 回复消息 SHALL 对齐前端流式路径的消息结构（`vue_methods.js` ~L3033 `newMsgData`），包含以下字段：
+  - `role: "assistant"`
+  - `content: ""`（与前端流式结束后清空 content 一致）
+  - `pure_content`：最终文本回复（Markdown）
+  - `backend_content`：完整结构化对话历史（`[{assistant, tool_calls}, {tool, result}, ..., {assistant, content}]`），用于 `prepareMessages` 构建 API 历史
+  - `displayBlocks`：UI 渲染块（`[{tool_call}, {tool_result}, ..., {text}]`），用于前端块级渲染
+  - `generationFinished: true`
+  - `total_tokens`：从 LLM 响应的 `usage.total_tokens` 提取
+  - `elapsedTime`：整个 LLM 调用耗时（毫秒）
+  - `messageKind`：取自行为项配置（非 `"chat"` 时写入）
+  - `timestamp`：写入时间戳
+- 消息写入主会话的 messages 后，通过 WebSocket `behavior_message` 广播到所有连接的前端客户端
 
 #### Scenario: Backend behavior with tool calls
 - **WHEN** 后端触发的行为执行中 LLM 返回 tool_calls
-- **THEN** 系统 SHALL 执行工具调用循环（不限制工具白名单），直到 LLM 返回纯文本回复
+- **THEN** 系统 SHALL 通过 `generate_complete_response` 内置的工具循环执行工具调用（不限制工具白名单），直到 LLM 返回纯文本回复。工具循环产生的中间消息（assistant tool_calls + tool results）SHALL 被提取并写入 `backend_content` 和 `displayBlocks`
+
+#### Scenario: Backend behavior without tool calls
+- **WHEN** 后端触发的行为执行中 LLM 直接返回纯文本回复（无 tool_calls）
+- **THEN** `backend_content` SHALL 为 `[{role: "assistant", content: reply}]`，`displayBlocks` SHALL 为 `[{type: "text", content: reply}]`
 
 #### Scenario: Frontend receives behavior_message
 - **WHEN** 前端收到 WebSocket `behavior_message` 事件

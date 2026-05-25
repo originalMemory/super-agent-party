@@ -54,7 +54,9 @@
 
 **后端调度器**：新增 `BackgroundBehaviorScheduler` 类（放在 `py/behavior_engine.py`），在 `lifespan` 启动时为所有 `runInBackground=true` 且 `platforms` 包含 `"chat"` 的行为创建 asyncio 定时器。配置变更时，`save_settings` 回调中 diff 新旧 `behaviorSettings`（JSON 序列化比较），仅当 `behaviorSettings` 实际发生变化时才重建定时器，避免无关配置变更（如改模型名）导致 cycle 计时被重置。
 
-**后端执行路径**：后端调度触发时，独立调用 LLM（类似现有心跳的实现），带上完整主会话的 system prompt + 全部对话历史 + 全量工具。LLM 回复后写入主会话 + WebSocket `behavior_message` 广播到前端。
+**后端执行路径**：后端调度触发时，通过 `generate_complete_response`（`stream=False`）独立调用 LLM，带上完整主会话的 system prompt + 全部对话历史 + 全量工具。该函数内置的 while 循环自动处理工具调用（`dispatch_tool`）。工具循环结束后，从 `request.messages` 末尾反向扫描提取工具循环追加的中间消息（`role:assistant+tool_calls` 和 `role:tool`），直到遇到非工具调用消息为止（历史 assistant 消息顶层无 `tool_calls`，边界准确）。不使用索引切片，因为 `generate_complete_response` 内部会替换 `request.messages` 对象（sanitize/compress），导致调用前捕获的长度偏移失效。提取结果构建与前端流式路径完全对齐的消息结构（`content=""`, `pure_content`, `backend_content`, `displayBlocks`, `generationFinished`, `total_tokens`, `elapsedTime`），写入主会话 + WebSocket `behavior_message` 广播到前端。前端对照位置：`vue_methods.js` ~L3033-3048 `newMsgData`。
+
+**random action 的 orderIndex**：`type=="order"` 时后端只读取 `orderIndex` 选取对应 event，不做自增。自增由前端每次触发后更新并持久化到 settings，后端收到的已是最新值。
 
 **前端执行路径**：前端调度触发时直接走 `runBehavior` → `sendMessage()`，与现有逻辑一致。
 

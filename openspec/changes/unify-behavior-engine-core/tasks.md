@@ -34,15 +34,15 @@
 
 ## 5. 后端调度器
 
-- [ ] 5.1 `py/behavior_engine.py`：新增 `BackgroundBehaviorScheduler` 类，在 `lifespan` 启动时为所有 `runInBackground=true` 且 `platforms` 包含 `"chat"` 的行为项创建 asyncio 定时器（支持 time/cycle 触发类型；noInput 在后端不适用，跳过）
-- [ ] 5.2 `py/behavior_engine.py`：`BackgroundBehaviorScheduler` 配置变更时 diff 新旧 `behaviorSettings`（JSON 序列化比较），仅当实际变化时才重建定时器，避免无关配置变更导致 cycle 计时重置
-- [ ] 5.3 `server.py`：后端行为触发时组装完整主会话上下文（复用 `build_lover_system_messages` + 读取全部对话历史），独立调用 LLM
-- [ ] 5.4 `server.py`：后端行为执行支持完整工具调用循环（复用 `dispatch_tool`，不限制工具白名单）
-- [ ] 5.5 `server.py`：后端行为执行前检查 `skipIfRecentlyActive`（复用 `is_default_group_recently_active`）
-- [ ] 5.6 `server.py`：后端行为 LLM 回复后检查 `noActionDetection`（复用 `is_awareness_no_action`）
-- [ ] 5.7 `server.py`：后端行为有效回复写入主会话（带 `messageKind` 标记）+ WebSocket `behavior_message` 广播
-- [ ] 5.8 `server.py` `lifespan`：启动 `BackgroundBehaviorScheduler`，关闭时 cancel
-- [ ] 5.9 `server.py` `save_settings` WebSocket handler：行为配置变更时通知 `BackgroundBehaviorScheduler.update_config()`
+- [x] 5.1 `py/behavior_engine.py`：新增 `BackgroundBehaviorScheduler` 类，在 `lifespan` 启动时为所有 `runInBackground=true` 且 `platforms` 包含 `"chat"` 的行为项创建 asyncio 定时器（支持 time/cycle 触发类型；noInput 在后端不适用，跳过）
+- [x] 5.2 `py/behavior_engine.py`：`BackgroundBehaviorScheduler` 配置变更时 diff 新旧 `behaviorSettings`（JSON 序列化比较），仅当实际变化时才重建定时器，避免无关配置变更导致 cycle 计时重置
+- [x] 5.3 `server.py`：后端行为触发时组装完整主会话上下文（复用 `build_lover_system_messages` + 读取全部对话历史），独立调用 LLM
+- [x] 5.4 `server.py`：后端行为执行支持完整工具调用循环（复用 `generate_complete_response` 非流式路径的内置 while 循环 + `dispatch_tool`，不限制工具白名单）
+- [x] 5.5 `server.py`：后端行为执行前检查 `skipIfRecentlyActive`（复用 `is_default_group_recently_active`）
+- [x] 5.6 `server.py`：后端行为 LLM 回复后检查 `noActionDetection`（复用 `is_awareness_no_action`）
+- [x] 5.7 `server.py`：后端行为有效回复写入主会话，消息结构对齐前端流式路径（`vue_methods.js` ~L3033-3048 `newMsgData`）：`content`（空）、`pure_content`（最终文本）、`backend_content`（完整结构化历史含工具调用/结果）、`displayBlocks`（UI 渲染块含 tool_call/tool_result/text）、`generationFinished`、`total_tokens`、`elapsedTime`、`messageKind` + WebSocket `behavior_message` 广播
+- [x] 5.8 `server.py` `lifespan`：启动 `BackgroundBehaviorScheduler`，关闭时 cancel
+- [x] 5.9 `server.py` `save_settings` WebSocket handler：行为配置变更时通知 `BackgroundBehaviorScheduler.update_config()`
 
 ## 6. WebSocket 与前端接收
 

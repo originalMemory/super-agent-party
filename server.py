@@ -366,6 +366,7 @@ from fastapi import status
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse,Response
 import uuid
 import time
+import random
 from typing import Any, AsyncIterator, List, Dict,Optional, Tuple, Union
 import shortuuid
 from py.mcp_clients import McpClient
@@ -409,6 +410,7 @@ node_ext_mcp_tools: Dict[str, List[Dict]] = {}  # 存储每个扩展的工具列
 locales = {}
 sleep_guard = None
 scheduler_task = None
+_bg_behavior_scheduler = None
 global_http_client = None  # 用于共享底层的 TCP 连接池
 openai_tts_clients_cache = {}  # 缓存 OpenAI TTS Client
 tetos_speakers_cache = {}      # 缓存 Tetos Speaker 对象
@@ -703,7 +705,7 @@ async def lifespan(app: FastAPI):
     )
     
     # 2. 解包结果
-    global settings, client, reasoner_client, fast_client, mcp_client_list, local_timezone, logger, locales, global_http_client,scheduler_task,sleep_guard
+    global settings, client, reasoner_client, fast_client, mcp_client_list, local_timezone, logger, locales, global_http_client,scheduler_task,sleep_guard,_bg_behavior_scheduler
     _, _, locales, settings, local_timezone = results
     
     from py.sleep_guard import SleepGuard
@@ -945,11 +947,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logging.getLogger(__name__).warning("[FTS] 启动索引失败（非致命）: %s", e)
 
+    # --- [后端行为调度器] ---
+    from py.behavior_engine import BackgroundBehaviorScheduler
+    _bg_behavior_scheduler = BackgroundBehaviorScheduler(_execute_background_behavior)
+    _bg_behavior_scheduler.start(settings)
+
     # --- [启动完成] ---
     yield
 
     # --- [关闭逻辑] ---
     print("System shutting down, cleaning up...")
+    _bg_behavior_scheduler.stop()
 
     try:
         await asyncio.to_thread(sleep_guard.stop)
@@ -1591,6 +1599,190 @@ async def dispatch_tool(tool_name: str, tool_params: dict, settings: dict,is_sub
     except Exception as e:
         logger.error(f"Error calling tool {tool_name}: {e}")
         return f"Error calling tool {tool_name}: {e}"
+
+
+# --- 后端行为执行（BackgroundBehaviorScheduler 的回调） ---
+
+_behavior_in_flight = False
+
+async def _execute_background_behavior(behavior_item, idx: int):
+    """
+    后端行为执行回调——由 BackgroundBehaviorScheduler 触发。
+    复用 generate_complete_response（tools 收集 + context 注入 + tool loop 全复用）。
+    """
+    global _behavior_in_flight, settings, client, reasoner_client
+
+    if _behavior_in_flight:
+        logging.info("[BehaviorExec] 已有后端行为执行中，跳过 #%d", idx)
+        return
+    _behavior_in_flight = True
+
+    try:
+        covs = await load_covs()
+        conversations = covs.get("conversations") or []
+
+        # --- skipIfRecentlyActive ---
+        if behavior_item.skipIfRecentlyActive:
+            window_ms = behavior_item.skipWindowMinutes * 60 * 1000
+            if is_default_group_recently_active(conversations, window_ms):
+                logging.info("[BehaviorExec] #%d 跳过：主会话近期活跃", idx)
+                return
+
+        # --- 读取主会话 ---
+        main_conv = get_default_main_conversation(conversations)
+        if not main_conv:
+            logging.warning("[BehaviorExec] #%d 找不到主会话", idx)
+            return
+
+        raw_messages = main_conv.get("messages") or []
+
+        # --- 组装行为 prompt ---
+        action_prompt = ""
+        if behavior_item.action.type == "prompt":
+            action_prompt = behavior_item.action.prompt or ""
+        elif behavior_item.action.type == "random" and behavior_item.action.random:
+            events = behavior_item.action.random.events or []
+            if events:
+                if behavior_item.action.random.type == "random":
+                    action_prompt = random.choice(events)
+                else:
+                    # orderIndex 由前端每次触发后自增并持久化到 settings，后端只读不写
+                    oi = behavior_item.action.random.orderIndex
+                    action_prompt = events[oi % len(events)] if events else ""
+
+        if not action_prompt:
+            logging.info("[BehaviorExec] #%d 无有效 prompt，跳过", idx)
+            return
+
+        # --- 构造请求：行为 prompt 作为 system，对话历史直接传 ---
+        # raw_messages 末尾通常是 assistant 消息，大多数 provider（DeepSeek/GLM 等）
+        # 允许末尾为 assistant turn，generate_complete_response 内部的 sanitizer
+        # 也会在必要时清理孤立 tool_call，此处不做额外处理。
+        api_messages = [{"role": "system", "content": action_prompt}]
+        api_messages.extend(raw_messages)
+
+        request = ChatRequest(messages=api_messages, model="super-model", stream=False)
+        fastapi_base_url = f"http://127.0.0.1:{PORT}/"
+        t_start = time.time()
+        resp = await generate_complete_response(
+            client, reasoner_client, request, settings,
+            fastapi_base_url, False, False, False,
+        )
+        elapsed_ms = int((time.time() - t_start) * 1000)
+
+        # --- 提取结果 ---
+        resp_data = json.loads(resp.body.decode("utf-8"))
+        if "error" in resp_data:
+            logging.error("[BehaviorExec] #%d LLM 错误: %s", idx, resp_data["error"])
+            return
+
+        choices = resp_data.get("choices", [])
+        if not choices:
+            return
+
+        reply = (choices[0].get("message", {}).get("content") or "").strip()
+
+        # --- noActionDetection ---
+        if behavior_item.noActionDetection and is_awareness_no_action(reply):
+            logging.info("[BehaviorExec] #%d NO_ACTION", idx)
+            return
+        if not reply:
+            return
+
+        # --- 从 request.messages 末尾反向提取工具循环产生的中间消息 ---
+        # generate_complete_response 的工具循环会往 request.messages.append 追加
+        # {role:assistant, tool_calls:[...]} 和 {role:tool, ...}，
+        # 但最终文本回复只在返回的 JSONResponse 里，不会追加到 request.messages。
+        # 用反向扫描而非索引切片，是因为 generate_complete_response 内部会对
+        # request.messages 做 sanitize/compress 替换（赋新列表对象），导致调用前
+        # 捕获的长度偏移失效。历史 assistant 消息顶层无 tool_calls 字段，反向扫描
+        # 碰到它即停止，不会多取也不会少取。
+        tool_msgs = []
+        for m in reversed(request.messages):
+            role = m.get("role") if isinstance(m, dict) else getattr(m, "role", None)
+            if role == "tool" or (role == "assistant" and (m.get("tool_calls") if isinstance(m, dict) else getattr(m, "tool_calls", None))):
+                tool_msgs.append(m)
+            else:
+                break
+        appended_msgs = list(reversed(tool_msgs))
+        backend_content = []
+        display_blocks = []
+        for m in appended_msgs:
+            role = m.get("role")
+            if role == "assistant" and m.get("tool_calls"):
+                backend_content.append({
+                    "role": "assistant",
+                    "content": m.get("content") or None,
+                    "tool_calls": m["tool_calls"],
+                })
+                for tc in m["tool_calls"]:
+                    fn = tc.get("function", {})
+                    display_blocks.append({
+                        "type": "tool_call",
+                        "id": tc.get("id", ""),
+                        "name": fn.get("name", "unknown"),
+                        "args": fn.get("arguments", "{}"),
+                    })
+            elif role == "tool":
+                bc_item = {
+                    "role": "tool",
+                    "tool_call_id": m.get("tool_call_id", ""),
+                    "name": m.get("name", "unknown"),
+                    "content": m.get("content", ""),
+                }
+                backend_content.append(bc_item)
+                display_blocks.append({
+                    "type": "tool_result",
+                    "id": bc_item["tool_call_id"],
+                    "name": bc_item["name"],
+                    "content": bc_item["content"],
+                })
+        backend_content.append({"role": "assistant", "content": reply})
+        if reply:
+            display_blocks.append({"type": "text", "content": reply})
+
+        # --- 写入主会话 + WebSocket 广播 ---
+        # 消息结构对齐前端流式路径 (vue_methods.js ~L3033-3048 newMsgData)
+        now_ms = int(time.time() * 1000)
+        usage = resp_data.get("usage") or {}
+        new_msg = {
+            "id": shortuuid.ShortUUID().random(length=12),
+            "role": "assistant",
+            "content": "",
+            "pure_content": reply,
+            "timestamp": now_ms,
+            "backend_content": backend_content,
+            "displayBlocks": display_blocks,
+            "generationFinished": True,
+            "total_tokens": usage.get("total_tokens", 0),
+            "elapsedTime": elapsed_ms,
+        }
+        if behavior_item.messageKind and behavior_item.messageKind != "chat":
+            new_msg["messageKind"] = behavior_item.messageKind
+
+        covs = await load_covs()
+        conversations = covs.get("conversations") or []
+        main_conv = get_default_main_conversation(conversations)
+        if not main_conv:
+            logging.warning("[BehaviorExec] #%d 写入时找不到主会话，跳过", idx)
+            return
+
+        if not isinstance(main_conv.get("messages"), list):
+            main_conv["messages"] = []
+        main_conv["messages"].append(new_msg)
+        main_conv["timestamp"] = now_ms
+        await save_covs(covs)
+
+        await ws_manager.broadcast({
+            "type": "behavior_message",
+            "data": {"conversationId": main_conv["id"], "message": new_msg},
+        })
+        logging.info("[BehaviorExec] #%d 完成", idx)
+
+    except Exception as e:
+        logging.error("[BehaviorExec] #%d 异常: %s", idx, e)
+    finally:
+        _behavior_in_flight = False
 
 def process_extra_params(extra_params_list):
     extra_body = {}
@@ -11589,6 +11781,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 settings_dict = data.get("data", {})
                 await save_settings(settings_dict)
                 await sync_all_bots_behavior(settings_dict)
+
+                # 通知后端行为调度器检查配置变更
+                if _bg_behavior_scheduler:
+                    _bg_behavior_scheduler.update_config(settings_dict)
 
                 await ws_manager.send_json({
                     "type": "settings_saved",

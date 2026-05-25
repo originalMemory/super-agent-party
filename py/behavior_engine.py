@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 import datetime
 import logging
@@ -229,3 +230,158 @@ class BehaviorEngine:
 
 # 全局单例
 global_behavior_engine = BehaviorEngine()
+
+
+# --- 后端调度器（chat 平台专用，替代原心跳定时器） ---
+
+class BackgroundBehaviorScheduler:
+    """
+    为 runInBackground=true 且 platforms 包含 "chat" 的行为项提供 asyncio 定时器调度。
+    仅处理 time/cycle 触发类型（noInput 在后端不适用）。
+    """
+
+    def __init__(self, execute_fn: Callable[[BehaviorItem, int], Any]):
+        """
+        :param execute_fn: 异步回调 (behavior_item, index) -> None，由 server.py 注入
+        """
+        self._execute_fn = execute_fn
+        self._tasks: Dict[str, asyncio.Task] = {}
+        self._config_snapshot: str = ""
+        self._running = False
+        self._behavior_list: List[BehaviorItem] = []
+
+    def start(self, settings: dict):
+        """首次启动，从 settings 中解析 behaviorSettings 并创建定时器"""
+        self._running = True
+        self._apply_config(settings)
+
+    def stop(self):
+        """停止所有定时器"""
+        self._running = False
+        self._cancel_all_tasks()
+
+    def update_config(self, settings: dict):
+        """配置变更时调用；diff 新旧 behaviorSettings，仅变化时重建"""
+        if not self._running:
+            return
+        behavior_settings = settings.get("behaviorSettings", {})
+        new_snapshot = json.dumps(behavior_settings, sort_keys=True, ensure_ascii=False)
+        if new_snapshot == self._config_snapshot:
+            logging.info("[BackgroundBehaviorScheduler] behaviorSettings 无变化，跳过重建")
+            return
+        logging.info("[BackgroundBehaviorScheduler] behaviorSettings 已变化，重建定时器")
+        self._apply_config(settings)
+
+    def _apply_config(self, settings: dict):
+        """解析配置并（重新）创建定时器"""
+        self._cancel_all_tasks()
+        behavior_settings = settings.get("behaviorSettings", {})
+        self._config_snapshot = json.dumps(behavior_settings, sort_keys=True, ensure_ascii=False)
+
+        if not behavior_settings.get("enabled"):
+            self._behavior_list = []
+            return
+
+        raw_list = behavior_settings.get("behaviorList", [])
+        self._behavior_list = []
+        for raw in raw_list:
+            try:
+                item = BehaviorItem(**(raw if isinstance(raw, dict) else raw.dict()))
+                self._behavior_list.append(item)
+            except Exception as e:
+                logging.warning("[BackgroundBehaviorScheduler] 解析行为项失败: %s", e)
+                self._behavior_list.append(None)
+
+        for idx, item in enumerate(self._behavior_list):
+            if item is None:
+                continue
+            if not item.enabled:
+                continue
+            if not item.runInBackground:
+                continue
+            effective_platforms = item.platforms if item.platforms else [item.platform]
+            if "chat" not in effective_platforms and "all" not in effective_platforms:
+                continue
+            trigger_type = item.trigger.type
+            if trigger_type == "noInput":
+                continue
+
+            if trigger_type == "time":
+                task = asyncio.create_task(self._time_loop(item, idx))
+                self._tasks[f"time_{idx}"] = task
+            elif trigger_type == "cycle":
+                task = asyncio.create_task(self._cycle_loop(item, idx))
+                self._tasks[f"cycle_{idx}"] = task
+
+        logging.info(
+            "[BackgroundBehaviorScheduler] 已创建 %d 个后台定时器",
+            len(self._tasks),
+        )
+
+    def _cancel_all_tasks(self):
+        for key, task in self._tasks.items():
+            task.cancel()
+        self._tasks.clear()
+
+    async def _time_loop(self, item: BehaviorItem, idx: int):
+        """每分钟检查一次是否匹配 time 触发条件"""
+        last_triggered_minute = ""
+        try:
+            while self._running:
+                await asyncio.sleep(10)
+                if not self._running:
+                    break
+                now = datetime.datetime.now()
+                current_minute = now.strftime("%H:%M")
+                if current_minute == last_triggered_minute:
+                    continue
+                time_cfg = item.trigger.time
+                if not time_cfg:
+                    continue
+                if not time_cfg.timeValue.startswith(current_minute):
+                    continue
+                py_weekday = now.weekday()
+                current_day = (py_weekday + 1) if py_weekday < 6 else 0
+                if time_cfg.days and current_day not in time_cfg.days:
+                    continue
+                last_triggered_minute = current_minute
+                logging.info("[BackgroundBehaviorScheduler] time 触发行为 #%d", idx)
+                await self._safe_execute(item, idx)
+        except asyncio.CancelledError:
+            pass
+
+    async def _cycle_loop(self, item: BehaviorItem, idx: int):
+        """按周期间隔重复执行"""
+        try:
+            cycle_cfg = item.trigger.cycle
+            if not cycle_cfg:
+                return
+            try:
+                parts = cycle_cfg.cycleValue.split(":")
+                cycle_sec = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+            except (IndexError, ValueError):
+                logging.warning("[BackgroundBehaviorScheduler] cycle 行为 #%d cycleValue 格式非法: %s，使用默认 60s", idx, cycle_cfg.cycleValue)
+                cycle_sec = 60
+            if cycle_sec < 10:
+                cycle_sec = 60
+
+            executed_count = 0
+            while self._running:
+                await asyncio.sleep(cycle_sec)
+                if not self._running:
+                    break
+                if not cycle_cfg.isInfiniteLoop and executed_count >= cycle_cfg.repeatNumber:
+                    logging.info("[BackgroundBehaviorScheduler] cycle 行为 #%d 已达重复上限", idx)
+                    break
+                logging.info("[BackgroundBehaviorScheduler] cycle 触发行为 #%d (第%d次)", idx, executed_count + 1)
+                await self._safe_execute(item, idx)
+                executed_count += 1
+        except asyncio.CancelledError:
+            pass
+
+    async def _safe_execute(self, item: BehaviorItem, idx: int):
+        """安全执行回调，捕获异常避免定时器退出"""
+        try:
+            await self._execute_fn(item, idx)
+        except Exception as e:
+            logging.error("[BackgroundBehaviorScheduler] 执行行为 #%d 异常: %s", idx, e)
